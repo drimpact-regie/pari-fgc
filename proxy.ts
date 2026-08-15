@@ -11,7 +11,12 @@ export default auth((req) => {
   const isPublic =
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith("/api/auth") ||
-    pathname.startsWith("/api/register");
+    pathname.startsWith("/api/register") ||
+    // Appelé directement par les serveurs Twitch (EventSub), pas par un
+    // navigateur avec notre session — doit rester accessible sans login.
+    // La sécurité de cette route est assurée par la vérification de
+    // signature HMAC, pas par l'authentification applicative.
+    pathname.startsWith("/api/twitch/webhook");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

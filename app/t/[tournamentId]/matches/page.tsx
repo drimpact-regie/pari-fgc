@@ -14,6 +14,7 @@ import {
   type StartggSet,
 } from "@/lib/startgg";
 import BetCard from "@/components/BetCard";
+import ActiveChatSetButton from "@/components/ActiveChatSetButton";
 
 interface RoundGroup {
   label: string;
@@ -211,14 +212,26 @@ export default async function MatchesPage({
                         const bet = betBySetId.get(set.id);
 
                         return (
-                          <BetCard
-                            key={set.id}
-                            tournamentId={tournamentId}
-                            setId={set.id}
-                            entrants={entrants}
-                            locked={set.state !== SET_STATE.NOT_STARTED}
-                            existingBetEntrantName={bet?.predictedEntrantName ?? null}
-                          />
+                          <div key={set.id} className="flex flex-col gap-1">
+                            {session.user.isAdmin &&
+                              tournament.twitchChannel &&
+                              set.state === SET_STATE.NOT_STARTED && (
+                                <div className="self-end">
+                                  <ActiveChatSetButton
+                                    tournamentId={tournamentId}
+                                    setId={set.id}
+                                    active={tournament.activeChatSetId === set.id}
+                                  />
+                                </div>
+                              )}
+                            <BetCard
+                              tournamentId={tournamentId}
+                              setId={set.id}
+                              entrants={entrants}
+                              locked={set.state !== SET_STATE.NOT_STARTED}
+                              existingBetEntrantName={bet?.predictedEntrantName ?? null}
+                            />
+                          </div>
                         );
                       })}
                     </div>

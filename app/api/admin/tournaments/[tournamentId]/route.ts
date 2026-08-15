@@ -8,6 +8,8 @@ import { normalizeTwitchChannel } from "@/lib/normalize";
 const updateSchema = z.object({
   name: z.string().trim().min(1, "Nom requis").max(80, "80 caractères maximum").optional(),
   twitchChannel: z.string().trim().max(100).optional(),
+  // Set start.gg "en direct" pour le pari via chat. Chaîne vide = désactive.
+  activeChatSetId: z.string().trim().optional(),
 });
 
 export async function PATCH(
@@ -41,6 +43,9 @@ export async function PATCH(
       ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
       ...(parsed.data.twitchChannel !== undefined
         ? { twitchChannel: normalizeTwitchChannel(parsed.data.twitchChannel) || null }
+        : {}),
+      ...(parsed.data.activeChatSetId !== undefined
+        ? { activeChatSetId: parsed.data.activeChatSetId || null }
         : {}),
     },
   });
