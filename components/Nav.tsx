@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { auth } from "@/lib/auth";
 import LogoutButton from "@/components/LogoutButton";
+import AdminMenu from "@/components/AdminMenu";
 
 export default async function Nav() {
   const session = await auth();
@@ -21,11 +22,7 @@ export default async function Nav() {
             <Link href="/leaderboard" className="hover:opacity-80">
               LeaderBet
             </Link>
-            {session.user.isAdmin && (
-              <Link href="/admin/tournaments" className="hover:opacity-80">
-                Tournois
-              </Link>
-            )}
+            {session.user.isAdmin && <AdminMenu />}
             <span style={{ color: "var(--muted)" }}>{session.user.name}</span>
             <LogoutButton />
           </nav>

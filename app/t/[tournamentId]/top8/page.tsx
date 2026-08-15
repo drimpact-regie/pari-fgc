@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import { getStandings, StartggApiError } from "@/lib/startgg";
 import Top8PickForm, { type PickStatus } from "@/components/Top8PickForm";
-import TopEightLockButton from "@/components/TopEightLockButton";
 
 export const dynamic = "force-dynamic";
 
@@ -80,10 +79,6 @@ export default async function Top8Page({
         Pronostiquez les 8 joueurs qui, selon vous, termineront dans le top 8 du tournoi.
         Cases vertes si confirmé dans le top 8, rouges si éliminé avant, en attente sinon.
       </p>
-
-      {session.user.isAdmin && (
-        <TopEightLockButton tournamentId={tournamentId} locked={tournament.topEightLocked} />
-      )}
 
       {error && (
         <div className="card p-4" style={{ color: "var(--lose)" }}>

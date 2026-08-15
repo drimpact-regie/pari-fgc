@@ -58,86 +58,22 @@ function MvcResultRow({
   );
 }
 
-function AddCharacterForm({ game }: { game: string }) {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-
-    const res = await fetch("/api/admin/characters", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ game, name, imageUrl: imageUrl || undefined }),
-    });
-
-    setSaving(false);
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Erreur lors de l'ajout.");
-      return;
-    }
-
-    setName("");
-    setImageUrl("");
-    router.refresh();
-  }
-
-  return (
-    <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-      <label className="text-sm flex-1">
-        Nom du personnage
-        <input
-          className="input mt-1"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Ex : Phoenix Cyclops"
-          required
-        />
-      </label>
-      <label className="text-sm flex-1">
-        Image (URL, optionnel)
-        <input
-          className="input mt-1"
-          value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-          placeholder="https://..."
-        />
-      </label>
-      <button type="submit" className="btn btn-primary" disabled={saving}>
-        {saving ? "..." : "Ajouter"}
-      </button>
-      {error && (
-        <p className="text-sm" style={{ color: "var(--lose)" }}>
-          {error}
-        </p>
-      )}
-    </form>
-  );
-}
-
-export default function ParryAdminPanel({
+export default function TournamentParryAdminSection({
   tournamentId,
+  tournamentName,
   topEightLocked,
   bracketResetLocked,
   bracketResetActual,
   detectedBracketReset,
   pendingCharacters,
-  videogameName,
 }: {
   tournamentId: string;
+  tournamentName: string;
   topEightLocked: boolean;
   bracketResetLocked: boolean;
   bracketResetActual: boolean | null;
   detectedBracketReset: boolean | null;
   pendingCharacters: PendingCharacter[];
-  videogameName: string | null;
 }) {
   const router = useRouter();
   const [savingReset, setSavingReset] = useState(false);
@@ -154,8 +90,8 @@ export default function ParryAdminPanel({
   }
 
   return (
-    <div className="card p-4 flex flex-col gap-4" style={{ borderColor: "var(--accent)" }}>
-      <p className="text-sm font-semibold">Admin — Le Pari du Parry</p>
+    <div className="card p-4 flex flex-col gap-4">
+      <p className="text-sm font-semibold">{tournamentName}</p>
 
       <div className="flex flex-wrap gap-2">
         <TopEightLockButton tournamentId={tournamentId} locked={topEightLocked} />
@@ -205,20 +141,6 @@ export default function ParryAdminPanel({
             <MvcResultRow key={entry.characterId} tournamentId={tournamentId} entry={entry} />
           ))}
         </div>
-      )}
-
-      {videogameName ? (
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-            Ajouter/corriger un personnage du roster ({videogameName})
-          </p>
-          <AddCharacterForm game={videogameName} />
-        </div>
-      ) : (
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Jeu de l&apos;event inconnu (non renvoyé par start.gg) — impossible d&apos;ajouter des
-          personnages pour ce tournoi.
-        </p>
       )}
     </div>
   );

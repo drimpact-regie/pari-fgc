@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import {
-  detectBracketReset,
   getCompletedSets,
   getEventInfo,
   getStandings,
@@ -16,7 +15,6 @@ import { computeTop8PickPoints } from "@/lib/scoring";
 import Top8PickForm, { type PickStatus } from "@/components/Top8PickForm";
 import MvcBetForm from "@/components/MvcBetForm";
 import BracketResetBetForm from "@/components/BracketResetBetForm";
-import ParryAdminPanel from "@/components/ParryAdminPanel";
 import LeaderboardTable from "@/components/LeaderboardTable";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +44,6 @@ export default async function ParryPage({
 
   let standings: Awaited<ReturnType<typeof getStandings>> = [];
   let error: string | null = null;
-  let detectedBracketReset: boolean | null = null;
   let mvcLocked = tournament.topEightLocked;
   let videogameName: string | null = null;
   try {
@@ -57,7 +54,6 @@ export default async function ParryPage({
       getEventInfo(tournament.eventSlug),
     ]);
     standings = standingsResult;
-    detectedBracketReset = detectBracketReset(completedSets);
     mvcLocked = isMvcLocked([...upcomingSets, ...completedSets], tournament.topEightLocked);
     videogameName = eventInfo?.videogameName ?? null;
   } catch (err) {
@@ -86,7 +82,7 @@ export default async function ParryPage({
       }),
       prisma.mvcBet.findMany({
         where: { eventSlug: tournament.eventSlug },
-        include: { user: { select: { username: true } }, character: true },
+        include: { user: { select: { username: true } } },
       }),
       prisma.bracketResetBet.findUnique({
         where: { userId_eventSlug: { userId: session.user.id, eventSlug: tournament.eventSlug } },
@@ -133,41 +129,12 @@ export default async function ParryPage({
     .map(([username, points]) => ({ username, points }))
     .sort((a, b) => b.points - a.points);
 
-  // Personnages MVC pariés mais pas encore résolus, regroupés pour l'admin.
-  const pendingCharacters = Array.from(
-    allMvcBets
-      .filter((b) => b.status === "PENDING")
-      .reduce((map, b) => {
-        const entry = map.get(b.characterId) ?? {
-          characterId: b.characterId,
-          character: b.character.name,
-          betCount: 0,
-        };
-        entry.betCount += 1;
-        map.set(b.characterId, entry);
-        return map;
-      }, new Map<string, { characterId: string; character: string; betCount: number }>())
-      .values(),
-  );
-
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm" style={{ color: "var(--muted)" }}>
         Le Pari du Parry regroupe le prono Top 8, le MVC (personnage) et le reset de
         bracket — un classement dédié, séparé du LeaderBet des paris sur matchs.
       </p>
-
-      {session.user.isAdmin && (
-        <ParryAdminPanel
-          tournamentId={tournamentId}
-          topEightLocked={tournament.topEightLocked}
-          bracketResetLocked={tournament.bracketResetLocked}
-          bracketResetActual={tournament.bracketResetActual}
-          detectedBracketReset={detectedBracketReset}
-          pendingCharacters={pendingCharacters}
-          videogameName={videogameName}
-        />
-      )}
 
       {error && (
         <div className="card p-4" style={{ color: "var(--lose)" }}>

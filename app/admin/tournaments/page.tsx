@@ -7,6 +7,7 @@ import { listTournaments } from "@/lib/tournaments";
 import AddTournamentForm from "@/components/AddTournamentForm";
 import TwitchChannelEditor from "@/components/TwitchChannelEditor";
 import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
+import SyncResultsButton from "@/components/SyncResultsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export default async function AdminTournamentsPage({
           Erreur Twitch : {decodeURIComponent(twitchError)}
         </div>
       )}
+
+      <SyncResultsButton />
 
       <div className="card p-4 flex items-center justify-between gap-3">
         <div>
