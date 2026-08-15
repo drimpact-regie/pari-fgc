@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { listTournaments } from "@/lib/tournaments";
 import AddTournamentForm from "@/components/AddTournamentForm";
+import TwitchChannelEditor from "@/components/TwitchChannelEditor";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function AdminTournamentsPage() {
             >
               <th className="px-4 py-2 font-medium">Nom</th>
               <th className="px-4 py-2 font-medium">Slug start.gg</th>
+              <th className="px-4 py-2 font-medium">Chaîne Twitch</th>
               <th className="px-4 py-2 font-medium"></th>
             </tr>
           </thead>
@@ -37,6 +39,9 @@ export default async function AdminTournamentsPage() {
                 <td className="px-4 py-2 font-medium">{t.name}</td>
                 <td className="px-4 py-2 font-mono text-xs" style={{ color: "var(--muted)" }}>
                   {t.eventSlug}
+                </td>
+                <td className="px-4 py-2">
+                  <TwitchChannelEditor tournamentId={t.id} initialChannel={t.twitchChannel} />
                 </td>
                 <td className="px-4 py-2 text-right">
                   <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>

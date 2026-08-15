@@ -4,23 +4,12 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getEventInfo, StartggApiError } from "@/lib/startgg";
-
-/**
- * Accepte soit un slug brut ("tournament/x/event/y"), soit une URL complète
- * start.gg collée telle quelle — erreur d'usage courante à absorber plutôt
- * qu'à rejeter.
- */
-function normalizeEventSlug(input: string): string {
-  const trimmed = input.trim();
-  const marker = "start.gg/";
-  const idx = trimmed.indexOf(marker);
-  const withoutDomain = idx === -1 ? trimmed : trimmed.slice(idx + marker.length);
-  return withoutDomain.replace(/^\/+|\/+$/g, "");
-}
+import { normalizeEventSlug, normalizeTwitchChannel } from "@/lib/normalize";
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Nom requis").max(80, "80 caractères maximum"),
   eventSlug: z.string().trim().min(1, "Lien ou slug start.gg requis"),
+  twitchChannel: z.string().trim().max(100).optional(),
 });
 
 export async function GET() {
@@ -70,9 +59,13 @@ export async function POST(request: Request) {
     );
   }
 
+  const twitchChannel = parsed.data.twitchChannel
+    ? normalizeTwitchChannel(parsed.data.twitchChannel) || null
+    : null;
+
   try {
     const tournament = await prisma.tournament.create({
-      data: { name: parsed.data.name, eventSlug },
+      data: { name: parsed.data.name, eventSlug, twitchChannel },
     });
     return NextResponse.json({ tournament });
   } catch (err: unknown) {

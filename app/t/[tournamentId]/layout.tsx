@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getTournament, listTournaments } from "@/lib/tournaments";
 import { getEventInfo } from "@/lib/startgg";
 import TournamentNav from "@/components/TournamentNav";
+import TwitchEmbed from "@/components/TwitchEmbed";
 
 export default async function TournamentLayout({
   children,
@@ -46,6 +47,7 @@ export default async function TournamentLayout({
         />
         <h1 className="text-xl font-semibold -mb-2">{tournament.name}</h1>
         {children}
+        {tournament.twitchChannel && <TwitchEmbed channel={tournament.twitchChannel} />}
       </div>
     </>
   );

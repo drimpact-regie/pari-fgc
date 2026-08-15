@@ -26,10 +26,13 @@ enum BetStatus {
  * existé sur le même slug au fil du temps.
  */
 model Tournament {
-  id        String   @id @default(cuid())
-  name      String
-  eventSlug String   @unique
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  name          String
+  eventSlug     String   @unique
+  // Chaîne Twitch à afficher en lecteur intégré sur les pages du tournoi
+  // (juste le nom de la chaîne, ex: "mk_rza"), renseignée par un admin.
+  twitchChannel String?
+  createdAt     DateTime @default(now())
 }
 
 model User {

@@ -7,6 +7,7 @@ export default function AddTournamentForm() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [eventSlug, setEventSlug] = useState("");
+  const [twitchChannel, setTwitchChannel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +19,7 @@ export default function AddTournamentForm() {
     const res = await fetch("/api/admin/tournaments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, eventSlug }),
+      body: JSON.stringify({ name, eventSlug, twitchChannel: twitchChannel || undefined }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -31,6 +32,7 @@ export default function AddTournamentForm() {
 
     setName("");
     setEventSlug("");
+    setTwitchChannel("");
     router.refresh();
   }
 
@@ -54,6 +56,15 @@ export default function AddTournamentForm() {
           onChange={(e) => setEventSlug(e.target.value)}
           placeholder="https://www.start.gg/tournament/xxx/event/yyy"
           required
+        />
+      </label>
+      <label className="text-sm">
+        Chaîne Twitch (optionnel)
+        <input
+          className="input mt-1"
+          value={twitchChannel}
+          onChange={(e) => setTwitchChannel(e.target.value)}
+          placeholder="mk_rza ou https://www.twitch.tv/mk_rza"
         />
       </label>
       {error && (
