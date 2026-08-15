@@ -113,6 +113,8 @@ export interface StartggEventInfo {
   state: string | null;
   numEntrants: number | null;
   tournamentName: string;
+  /** Image de bannière/fond du tournoi (côté start.gg), si disponible. */
+  bannerUrl: string | null;
 }
 
 // --- Requêtes GraphQL --------------------------------------------------------
@@ -126,6 +128,10 @@ const EVENT_INFO_QUERY = /* GraphQL */ `
       numEntrants
       tournament {
         name
+        images {
+          url
+          type
+        }
       }
     }
   }
@@ -261,17 +267,25 @@ export async function getEventInfo(
       name: string;
       state: string | null;
       numEntrants: number | null;
-      tournament: { name: string } | null;
+      tournament: {
+        name: string;
+        images: { url: string; type: string | null }[] | null;
+      } | null;
     } | null;
   }>(EVENT_INFO_QUERY, { eventSlug });
 
   if (!data.event) return null;
+
+  const images = data.event.tournament?.images ?? [];
+  const banner = images.find((img) => img.type === "banner") ?? images[0] ?? null;
+
   return {
     id: data.event.id,
     name: data.event.name,
     state: data.event.state,
     numEntrants: data.event.numEntrants,
     tournamentName: data.event.tournament?.name ?? "",
+    bannerUrl: banner?.url ?? null,
   };
 }
 
