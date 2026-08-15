@@ -58,7 +58,7 @@ const HELP_TEXT =
   "!bet mvc <personnage> <0-8> (MVC) | !bet reset oui|non (reset de bracket) | " +
   "!bet top8 <j1, j2, ..., j8> (pronostic top 8, alias : !top8). " +
   "Compte Twitch lié requis pour mvc/reset" +
-  accountLinkHint() +
+  (SITE_URL ? ` : ${SITE_URL}/account` : "") +
   ".";
 
 const BET_COMMANDS = ["!bet", "!pari"];
@@ -175,24 +175,36 @@ async function handleBetCommand(
   await placeChatBet(candidates[0].set, candidates[0].chosen, tournament.eventSlug, chatter);
 }
 
+/** !bet top8 (alias !top8) — pari "Le Pari du Parry", répond dans le chat comme mvc/reset. */
 async function handleTop8Command(
   target: string,
-  tournament: { id: string; eventSlug: string; topEightLocked: boolean },
+  tournament: { id: string; eventSlug: string; name: string; topEightLocked: boolean },
   chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
 ) {
-  if (tournament.topEightLocked) return;
+  if (tournament.topEightLocked) {
+    await reply(broadcasterId, `@${chatter.displayName} le pronostic Top 8 est fermé pour ${tournament.name}.`);
+    return;
+  }
 
   const names = target
     .split(",")
     .map((n) => n.trim())
     .filter(Boolean)
     .slice(0, 8);
-  if (names.length === 0) return;
+  if (names.length === 0) {
+    await reply(broadcasterId, `@${chatter.displayName} syntaxe : !bet top8 <j1>, <j2>, ..., <j8>`);
+    return;
+  }
 
   let standings;
   try {
     standings = await getStandings(tournament.eventSlug);
   } catch {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} impossible de récupérer les joueurs de ${tournament.name}, réessaie plus tard.`,
+    );
     return;
   }
 
@@ -209,7 +221,13 @@ async function handleTop8Command(
       picks.push({ entrantId: match.id, entrantName: match.name });
     }
   }
-  if (picks.length === 0) return;
+  if (picks.length === 0) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} aucun des noms donnés ne correspond à un joueur de ${tournament.name}.`,
+    );
+    return;
+  }
 
   const bettor = await ensureChatBettor(chatter);
 
@@ -218,6 +236,13 @@ async function handleTop8Command(
     update: { picks },
     create: { userId: bettor.id, eventSlug: tournament.eventSlug, picks },
   });
+
+  await reply(
+    broadcasterId,
+    `@${chatter.displayName} a pronostiqué son Top 8 pour ${tournament.name} : ${picks
+      .map((p) => p.entrantName)
+      .join(", ")} !`,
+  );
 }
 
 /**
@@ -301,7 +326,7 @@ async function handleMvcChatCommand(
 
   await reply(
     broadcasterId,
-    `@${chatter.displayName} a parié ${match.name} x${parsed.count} sur le MVC de ${tournament.name} !`,
+    `@${chatter.displayName} a parié qu'il y aura ${parsed.count} ${match.name} dans le top 8 de ${tournament.name} !`,
   );
 }
 
@@ -406,12 +431,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Sous-commandes "Le Pari du Parry" : contrairement au pari classique et
-  // au top 8 (y compris son alias "!bet top8", qui restent silencieux en cas
-  // d'échec — comportement existant inchangé), elles répondent explicitement
-  // dans le chat pour chaque cas.
+  // "Le Pari du Parry" (top 8, mvc, reset) répond explicitement dans le chat
+  // pour chaque cas ; le pari classique ("!bet <joueur>") reste silencieux.
+  const isTop8Invocation = top8Target !== null || (betTarget !== null && isTop8Command(betTarget));
   const isParrySubCommand =
-    betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget));
+    isTop8Invocation ||
+    (betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget)));
 
   const tournament = await prisma.tournament.findFirst({
     where: { twitchChannel: event.broadcaster_user_login },
@@ -434,11 +459,11 @@ export async function POST(request: Request) {
   } else if (betTarget !== null && isResetCommand(betTarget)) {
     await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
   } else if (betTarget !== null && isTop8Command(betTarget)) {
-    await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter);
+    await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
   } else if (betTarget !== null) {
     await handleBetCommand(betTarget, tournament, chatter);
   } else if (top8Target !== null) {
-    await handleTop8Command(top8Target, tournament, chatter);
+    await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
   }
 
   return NextResponse.json({ ok: true });
