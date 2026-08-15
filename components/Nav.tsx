@@ -18,6 +18,9 @@ export default async function Nav() {
 
         {session?.user ? (
           <nav className="flex items-center gap-4 text-sm">
+            <Link href="/leaderboard" className="hover:opacity-80">
+              LeaderBet
+            </Link>
             {session.user.isAdmin && (
               <Link href="/admin/tournaments" className="hover:opacity-80">
                 Tournois
