@@ -10,8 +10,10 @@ matchs d'un event start.gg (tournois de jeux de combat). Permet de :
 ## Stack
 
 - [Next.js](https://nextjs.org) (App Router) + TypeScript + Tailwind CSS
-- [Prisma](https://www.prisma.io) + SQLite (facilement remplaçable par
-  Postgres pour aller au-delà d'un petit cercle de parieurs)
+- [Prisma](https://www.prisma.io) + PostgreSQL (Vercel Postgres / Prisma
+  Postgres, Neon, Supabase...) — nécessaire car le système de fichiers de
+  Vercel est éphémère en production, une base fichier (SQLite) n'y survit
+  pas
 - [NextAuth (Auth.js) v5](https://authjs.dev) pour l'authentification
 - API GraphQL [start.gg](https://developer.start.gg/) pour les données de
   tournoi
@@ -50,19 +52,39 @@ Copier `.env.example` en `.env.local` et renseigner :
 | `INVITE_CODE`                | Code requis pour s'inscrire                                               |
 | `POINTS_PER_CORRECT_BET`    | Points attribués par pari gagnant                                         |
 | `ADMIN_SYNC_SECRET`          | Secret pour déclencher `/api/admin/sync-results` sans session (cron)      |
-| `DATABASE_URL`               | Connexion base de données (`file:./dev.db` en local)                     |
+| `DATABASE_URL`               | Connexion **PostgreSQL directe** (schéma `postgresql://...`)             |
 | `AUTH_SECRET`                | Secret NextAuth (générer avec `npx auth secret`)                          |
 
 ## Démarrage
 
 ```bash
 npm install
-npx prisma migrate deploy   # ou `npm run db:push` en dev rapide
+npm run db:migrate   # applique prisma/migrations en dev (créé si besoin)
 npm run dev
 ```
 
 Le premier compte créé via `/register` devient automatiquement admin
 (peut déclencher la synchronisation des résultats).
+
+## Déploiement sur Vercel
+
+1. Importer le repo sur Vercel, Framework Preset **Next.js**, Root Directory
+   vide (`.`) — le repo n'est pas un monorepo, `package.json` est à la
+   racine.
+2. Créer une base Postgres (Storage → Prisma Postgres / Vercel Postgres,
+   ou Neon/Supabase en externe) et la connecter au projet.
+3. Dans les variables d'environnement du projet Vercel, définir
+   `DATABASE_URL` avec la **chaîne de connexion directe** PostgreSQL
+   fournie par votre provider (schéma `postgresql://...`). Si votre
+   provider expose aussi une URL "Accelerate" (`prisma+postgres://...`,
+   optimisée edge/pooling), ne l'utilisez pas ici sans avoir ajouté
+   `@prisma/extension-accelerate` — la chaîne directe fonctionne nativement
+   avec Prisma Client, sans dépendance supplémentaire.
+4. Définir les autres variables (`STARTGG_TOKEN`, `STARTGG_EVENT_SLUG`,
+   `INVITE_CODE`, `AUTH_SECRET`, `ADMIN_SYNC_SECRET`, ...).
+5. Déployer. Le script `build` (`prisma migrate deploy && next build`)
+   applique automatiquement les migrations sur la base avant de builder —
+   aucune étape manuelle de migration n'est nécessaire en production.
 
 ## Fonctionnement
 
@@ -103,12 +125,18 @@ il faudrait déclarer un provider OAuth générique une fois l'app OAuth
 enregistrée côté start.gg (cf. leur documentation développeur), sur le
 même principe.
 
-## Limite connue de cet environnement de build
+## Limites connues de cet environnement de build
 
-Cet environnement d'exécution sandboxé n'a pas d'accès réseau sortant vers
-`api.start.gg` (bloqué par la politique réseau du conteneur). Le code a
-donc été écrit et testé (build, lint, flux d'inscription/connexion,
-rendu des pages avec gestion d'erreur) sans pouvoir faire d'appel réel à
-l'API start.gg. Un test de bout en bout avec de vraies données de
-tournoi doit être fait après déploiement dans un environnement avec accès
-réseau et un `STARTGG_TOKEN` valide.
+- Pas d'accès réseau sortant vers `api.start.gg` (politique réseau du
+  conteneur). Le code a été écrit et testé (build, lint, flux
+  d'inscription/connexion, rendu des pages avec gestion d'erreur) sans
+  pouvoir faire d'appel réel à l'API start.gg. Un test de bout en bout avec
+  de vraies données de tournoi doit être fait après déploiement, avec un
+  `STARTGG_TOKEN` valide.
+- Pas de connexion TCP brute possible vers une base Postgres externe
+  (Vercel Postgres, Neon, ...) — seul HTTPS passe par le proxy réseau de
+  l'environnement. La migration Prisma (`prisma/migrations/`) a donc été
+  générée et validée contre une instance PostgreSQL 16 locale (schéma
+  identique), pas contre la base réelle de production. Le schéma étant du
+  SQL standard (pas d'extension spécifique), elle doit s'appliquer à
+  l'identique sur n'importe quel Postgres géré.

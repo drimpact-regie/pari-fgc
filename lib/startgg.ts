@@ -275,10 +275,33 @@ export async function getEventInfo(
   };
 }
 
+/**
+ * L'API start.gg renvoie `entrant.id` (et `set.id`) en tant que nombre côté
+ * JSON, alors qu'on les manipule comme des chaînes partout dans l'app
+ * (formulaires, validation Zod, clés Prisma). On normalise donc en string
+ * dès la sortie de l'API pour éviter tout mismatch de type en aval.
+ */
+function normalizeEntrant(entrant: StartggEntrant | null): StartggEntrant | null {
+  if (!entrant) return null;
+  return { id: String(entrant.id), name: entrant.name };
+}
+
+function normalizeSet(set: StartggSet): StartggSet {
+  return {
+    ...set,
+    id: String(set.id),
+    slots: set.slots.map((slot) => ({ entrant: normalizeEntrant(slot.entrant) })),
+  };
+}
+
+function normalizeStanding(standing: StartggStanding): StartggStanding {
+  return { ...standing, entrant: normalizeEntrant(standing.entrant) };
+}
+
 export async function getUpcomingSets(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggSet[]> {
-  return fetchAllPages<StartggSet>(async (page) => {
+  const sets = await fetchAllPages<StartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
         sets: { pageInfo: { totalPages: number }; nodes: StartggSet[] } | null;
@@ -288,12 +311,13 @@ export async function getUpcomingSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
+  return sets.map(normalizeSet);
 }
 
 export async function getCompletedSets(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggSet[]> {
-  return fetchAllPages<StartggSet>(async (page) => {
+  const sets = await fetchAllPages<StartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
         sets: { pageInfo: { totalPages: number }; nodes: StartggSet[] } | null;
@@ -303,12 +327,13 @@ export async function getCompletedSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
+  return sets.map(normalizeSet);
 }
 
 export async function getStandings(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggStanding[]> {
-  return fetchAllPages<StartggStanding>(async (page) => {
+  const standings = await fetchAllPages<StartggStanding>(async (page) => {
     const data = await callStartGG<{
       event: {
         standings: {
@@ -324,13 +349,14 @@ export async function getStandings(
       totalPages: data.event.standings.pageInfo.totalPages,
     };
   });
+  return standings.map(normalizeStanding);
 }
 
 export async function getSetResult(setId: string): Promise<StartggSet | null> {
   const data = await callStartGG<{ set: StartggSet | null }>(SET_RESULT_QUERY, {
     setId,
   });
-  return data.set;
+  return data.set ? normalizeSet(data.set) : null;
 }
 
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */

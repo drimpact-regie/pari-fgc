@@ -1,13 +1,14 @@
-// Schéma Prisma — cercle de parieurs (phase 1 : ~30 comptes, SQLite).
-// Pour étendre au-delà de 30 personnes, passer DATABASE_URL sur Postgres
-// (provider = "postgresql") ; le schéma reste valable tel quel.
+// Schéma Prisma — cercle de parieurs (phase 1 : ~30 comptes).
+// Postgres (ex: Vercel Postgres / Neon / Supabase) : le système de fichiers
+// de Vercel étant éphémère en production, SQLite n'y fonctionne pas — voir
+// DATABASE_URL dans .env.example.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
