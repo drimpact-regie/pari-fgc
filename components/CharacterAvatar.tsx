@@ -24,7 +24,7 @@ export default function CharacterAvatar({
         src={character.imageUrl}
         alt=""
         className="rounded-md object-cover"
-        style={{ width: size, height: size }}
+        style={{ width: size, height: size, objectPosition: "center" }}
       />
     );
   }
