@@ -10,6 +10,10 @@ const betSchema = z.object({
   tournamentId: z.string().min(1),
   setId: z.string().min(1),
   entrantId: z.string().min(1),
+  // Score exact optionnel (bonus de points) : manches gagnées par le
+  // joueur pronostiqué vainqueur / par son adversaire.
+  predictedEntrantScore: z.number().int().min(0).optional(),
+  predictedOpponentScore: z.number().int().min(0).optional(),
 });
 
 export async function GET() {
@@ -41,7 +45,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { tournamentId, setId, entrantId } = parsed.data;
+  const { tournamentId, setId, entrantId, predictedEntrantScore, predictedOpponentScore } =
+    parsed.data;
 
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
@@ -67,15 +72,38 @@ export async function POST(request: Request) {
     );
   }
 
-  const chosenEntrant = set.slots
-    .map((slot) => slot.entrant)
-    .find((entrant) => entrant?.id === entrantId);
+  const chosenSlot = set.slots.find((slot) => slot.entrant?.id === entrantId);
+  const chosenEntrant = chosenSlot?.entrant;
+  const opponentSlot = set.slots.find((slot) => slot.entrant && slot.entrant.id !== entrantId);
 
   if (!chosenEntrant) {
     return NextResponse.json(
       { error: "Ce joueur ne fait pas partie de ce match." },
       { status: 400 },
     );
+  }
+
+  let validatedEntrantScore: number | null = null;
+  let validatedOpponentScore: number | null = null;
+  if (predictedEntrantScore !== undefined || predictedOpponentScore !== undefined) {
+    if (predictedEntrantScore === undefined || predictedOpponentScore === undefined) {
+      return NextResponse.json({ error: "Score exact incomplet." }, { status: 400 });
+    }
+    if (!set.totalGames) {
+      return NextResponse.json(
+        { error: "Format du match inconnu, score exact indisponible." },
+        { status: 400 },
+      );
+    }
+    const majority = Math.ceil(set.totalGames / 2);
+    if (predictedEntrantScore !== majority || predictedOpponentScore >= majority) {
+      return NextResponse.json(
+        { error: "Score exact invalide pour ce format de match." },
+        { status: 400 },
+      );
+    }
+    validatedEntrantScore = predictedEntrantScore;
+    validatedOpponentScore = predictedOpponentScore;
   }
 
   try {
@@ -87,6 +115,11 @@ export async function POST(request: Request) {
         roundText: set.fullRoundText ?? "",
         predictedEntrantId: chosenEntrant.id,
         predictedEntrantName: chosenEntrant.name,
+        predictedEntrantScore: validatedEntrantScore,
+        predictedOpponentScore: validatedOpponentScore,
+        predictedEntrantSeed: chosenSlot?.seedNum ?? null,
+        opponentSeed: opponentSlot?.seedNum ?? null,
+        totalGames: set.totalGames,
       },
     });
     return NextResponse.json({ bet });

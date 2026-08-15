@@ -86,6 +86,10 @@ export interface StartggEntrant {
 
 export interface StartggSetSlot {
   entrant: StartggEntrant | null;
+  /** Tête de série de cet entrant pour la poule/phase de ce set (favori = plus petit nombre). */
+  seedNum: number | null;
+  /** Nombre de manches gagnées par cet entrant dans ce set, une fois terminé. */
+  score: number | null;
 }
 
 /** État d'un set côté start.gg: 1 = à venir, 2 = en cours, 3 = terminé. */
@@ -102,6 +106,8 @@ export interface StartggSet {
   state: number;
   winnerId: number | null;
   slots: StartggSetSlot[];
+  /** Format du set (Bo3 = 3, Bo5 = 5, ...), tel que configuré par l'organisateur. */
+  totalGames: number | null;
   /** Identifiant de la poule/phaseGroup start.gg à laquelle ce set appartient. */
   phaseGroupId: string | null;
   /** Identifiant affiché de la poule (ex: "A", "1"), quand il y en a plusieurs en parallèle. */
@@ -189,10 +195,21 @@ const UPCOMING_SETS_QUERY = /* GraphQL */ `
           fullRoundText
           state
           winnerId
+          totalGames
           slots {
             entrant {
               id
               name
+            }
+            seed {
+              seedNum
+            }
+            standing {
+              stats {
+                score {
+                  value
+                }
+              }
             }
           }
           phaseGroup {
@@ -228,10 +245,21 @@ const COMPLETED_SETS_QUERY = /* GraphQL */ `
           fullRoundText
           state
           winnerId
+          totalGames
           slots {
             entrant {
               id
               name
+            }
+            seed {
+              seedNum
+            }
+            standing {
+              stats {
+                score {
+                  value
+                }
+              }
             }
           }
           phaseGroup {
@@ -328,12 +356,25 @@ const SET_RESULT_QUERY = /* GraphQL */ `
   query SetResult($setId: ID!) {
     set(id: $setId) {
       id
+      round
+      fullRoundText
       state
       winnerId
+      totalGames
       slots {
         entrant {
           id
           name
+        }
+        seed {
+          seedNum
+        }
+        standing {
+          stats {
+            score {
+              value
+            }
+          }
         }
       }
     }
@@ -436,7 +477,11 @@ function normalizeEntrant(entrant: RawStartggEntrant | null): StartggEntrant | n
 /** Forme brute d'un set telle que renvoyée par l'API (avant normalisation). */
 interface RawStartggSet
   extends Omit<StartggSet, "phaseGroupId" | "poolLabel" | "phaseId" | "phaseName" | "slots"> {
-  slots: { entrant: RawStartggEntrant | null }[];
+  slots: {
+    entrant: RawStartggEntrant | null;
+    seed: { seedNum: number } | null;
+    standing: { stats: { score: { value: number | null } | null } | null } | null;
+  }[];
   phaseGroup: {
     id: string | number;
     displayIdentifier: string | null;
@@ -448,7 +493,11 @@ function normalizeSet(set: RawStartggSet): StartggSet {
   return {
     ...set,
     id: String(set.id),
-    slots: set.slots.map((slot) => ({ entrant: normalizeEntrant(slot.entrant) })),
+    slots: set.slots.map((slot) => ({
+      entrant: normalizeEntrant(slot.entrant),
+      seedNum: slot.seed?.seedNum ?? null,
+      score: slot.standing?.stats?.score?.value ?? null,
+    })),
     phaseGroupId: set.phaseGroup ? String(set.phaseGroup.id) : null,
     poolLabel: set.phaseGroup?.displayIdentifier || null,
     phaseId: set.phaseGroup?.phase ? String(set.phaseGroup.phase.id) : null,

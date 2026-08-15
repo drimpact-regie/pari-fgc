@@ -205,8 +205,15 @@ export default async function MatchesPage({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 pt-0">
                       {group.sets.map((set) => {
                         const entrants = set.slots
-                          .map((slot) => slot.entrant)
-                          .filter((entrant): entrant is StartggEntrant => entrant !== null);
+                          .filter(
+                            (slot): slot is typeof slot & { entrant: StartggEntrant } =>
+                              slot.entrant !== null,
+                          )
+                          .map((slot) => ({
+                            id: slot.entrant.id,
+                            name: slot.entrant.name,
+                            seedNum: slot.seedNum,
+                          }));
                         const bet = betBySetId.get(set.id);
 
                         return (
@@ -226,8 +233,11 @@ export default async function MatchesPage({
                               tournamentId={tournamentId}
                               setId={set.id}
                               entrants={entrants}
+                              totalGames={set.totalGames}
                               locked={set.state !== SET_STATE.NOT_STARTED}
                               existingBetEntrantName={bet?.predictedEntrantName ?? null}
+                              existingBetEntrantScore={bet?.predictedEntrantScore ?? null}
+                              existingBetOpponentScore={bet?.predictedOpponentScore ?? null}
                             />
                           </div>
                         );

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { POINTS_PER_CORRECT_BET } from "@/config/tournament";
 import { getSetResult, SET_STATE, StartggApiError } from "@/lib/startgg";
+import { computeBetPoints } from "@/lib/scoring";
 
 /**
  * Résout les paris en attente : pour chaque match parié qui est terminé
@@ -53,17 +53,34 @@ export async function POST(request: Request) {
     }
 
     const winnerId = String(set.winnerId);
+    const winnerSlot = set.slots.find((slot) => slot.entrant?.id === winnerId);
+    const loserSlot = set.slots.find(
+      (slot) => slot.entrant && slot.entrant.id !== winnerId,
+    );
+    const actualWinnerScore = winnerSlot?.score ?? null;
+    const actualLoserScore = loserSlot?.score ?? null;
+
     const bets = await prisma.bet.findMany({
       where: { setId, status: "PENDING" },
     });
 
     for (const bet of bets) {
       const won = bet.predictedEntrantId === winnerId;
+      const points = computeBetPoints({
+        won,
+        predictedEntrantSeed: bet.predictedEntrantSeed,
+        opponentSeed: bet.opponentSeed,
+        totalGames: bet.totalGames,
+        predictedEntrantScore: bet.predictedEntrantScore,
+        predictedOpponentScore: bet.predictedOpponentScore,
+        actualWinnerScore,
+        actualLoserScore,
+      });
       await prisma.bet.update({
         where: { id: bet.id },
         data: {
           status: won ? "WON" : "LOST",
-          pointsAwarded: won ? POINTS_PER_CORRECT_BET : 0,
+          pointsAwarded: points,
           resolvedAt: new Date(),
         },
       });

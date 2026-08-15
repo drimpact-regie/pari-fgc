@@ -110,6 +110,19 @@ model Bet {
   roundText             String
   predictedEntrantId    String
   predictedEntrantName  String
+  // Score exact pronostiqué (optionnel, bonus de points) : manches gagnées
+  // par le joueur pronostiqué vainqueur / par son adversaire.
+  predictedEntrantScore  Int?
+  predictedOpponentScore Int?
+  // Snapshot des têtes de série au moment du pari, pour calculer le bonus
+  // "outsider" à la résolution sans dépendre de données start.gg qui
+  // peuvent ne plus être exposées de la même façon plus tard dans le
+  // tournoi.
+  predictedEntrantSeed   Int?
+  opponentSeed           Int?
+  // Format du set (Bo3 = 3, Bo5 = 5, ...), pour calibrer le bonus de score
+  // exact à la résolution.
+  totalGames             Int?
   status                BetStatus @default(PENDING)
   pointsAwarded         Int       @default(0)
   createdAt             DateTime  @default(now())
