@@ -102,6 +102,13 @@ export default function RegisterPage() {
           Se connecter
         </Link>
       </p>
+      <p className="text-sm mt-2" style={{ color: "var(--muted)" }}>
+        Ou inscris-toi directement via Twitch (sans code d&apos;invitation) depuis la{" "}
+        <Link href="/login" className="underline">
+          page de connexion
+        </Link>
+        .
+      </p>
     </div>
   );
 }

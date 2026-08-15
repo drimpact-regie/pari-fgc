@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { ensureUserByTwitchId } from "@/lib/users";
 import { sendChatMessage, verifyWebhookSignature } from "@/lib/twitch";
 import { SITE_URL } from "@/config/tournament";
 import {
@@ -77,31 +78,8 @@ function matchEntrant(
 }
 
 /** Crée (ou récupère) le compte parieur associé à ce compte Twitch. */
-async function ensureChatBettor(chatter: {
-  id: string;
-  login: string;
-  displayName: string;
-}) {
-  const existing = await prisma.user.findUnique({ where: { twitchId: chatter.id } });
-  if (existing) return existing;
-
-  const baseUsername = chatter.displayName || chatter.login;
-  try {
-    return await prisma.user.create({
-      data: { username: baseUsername, twitchId: chatter.id },
-    });
-  } catch (err: unknown) {
-    const isUniqueViolation =
-      err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "P2002";
-    if (!isUniqueViolation) throw err;
-    // Le pseudo est déjà pris par un compte site distinct : on suffixe.
-    return prisma.user.create({
-      data: {
-        username: `${baseUsername}-tw${chatter.id.slice(-4)}`,
-        twitchId: chatter.id,
-      },
-    });
-  }
+async function ensureChatBettor(chatter: { id: string; login: string; displayName: string }) {
+  return ensureUserByTwitchId(chatter.id, chatter.displayName || chatter.login);
 }
 
 function openEntrants(set: StartggSet): StartggEntrant[] {

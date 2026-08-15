@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import ChangePasswordForm from "@/components/ChangePasswordForm";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,8 @@ export default async function AccountPage({
           </a>
         )}
       </div>
+
+      <ChangePasswordForm hasPassword={Boolean(user?.passwordHash)} />
     </div>
   );
 }

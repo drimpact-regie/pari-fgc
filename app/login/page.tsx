@@ -71,6 +71,27 @@ function LoginForm() {
           {loading ? "Connexion..." : "Se connecter"}
         </button>
       </form>
+
+      <div className="flex items-center gap-3 my-4">
+        <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
+        <span className="text-xs" style={{ color: "var(--muted)" }}>
+          ou
+        </span>
+        <div className="flex-1 border-t" style={{ borderColor: "var(--border)" }} />
+      </div>
+
+      <button
+        type="button"
+        className="btn w-full"
+        style={{ background: "#9146FF", color: "#fff" }}
+        onClick={() => signIn("twitch", { callbackUrl: from })}
+      >
+        Se connecter avec Twitch
+      </button>
+      <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>
+        Première connexion via Twitch ? Ton compte est créé automatiquement.
+      </p>
+
       <p className="text-sm mt-4" style={{ color: "var(--muted)" }}>
         Pas encore de compte ?{" "}
         <Link href="/register" className="underline">
