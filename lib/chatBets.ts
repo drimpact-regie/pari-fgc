@@ -4,14 +4,19 @@
  * reset) — séparées du handler webhook pour rester facilement testables.
  */
 
-/** Casse, accents et espaces multiples normalisés pour un matching tolérant. */
+/**
+ * Casse, accents et ponctuation normalises pour un matching tolerant : les
+ * espaces, tirets, apostrophes et points sont retires entierement (pas
+ * seulement collapses), pour que "spiderman", "spider man" et "Spider-Man"
+ * soient tous equivalents - le chat tape rarement la ponctuation exacte
+ * d'un nom compose.
+ */
 export function normalizeForMatch(input: string): string {
   return input
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function levenshtein(a: string, b: string): number {
@@ -132,4 +137,23 @@ export function parseResetCommand(target: string): boolean | null {
   if (RESET_YES_WORDS.has(word)) return true;
   if (RESET_NO_WORDS.has(word)) return false;
   return null;
+}
+
+// --- Commande top 8 : "top8 <j1>, <j2>, ..." (alias de !top8 sous !bet) -----
+
+export function isTop8Command(target: string): boolean {
+  return /^top ?8\b/i.test(target.trim());
+}
+
+/** Renvoie null si la cible ne commence pas par "top8"/"top 8". */
+export function parseTop8Target(target: string): string | null {
+  const match = /^top ?8\s*(.*)$/i.exec(target.trim());
+  return match ? match[1].trim() : null;
+}
+
+// --- Commande aide : "!bet", "!bet aide", "!bet help" -----------------------
+
+export function isHelpCommand(target: string): boolean {
+  const normalized = target.trim().toLowerCase();
+  return normalized === "" || normalized === "aide" || normalized === "help";
 }

@@ -41,7 +41,7 @@ export default async function AccountPage({
           <p className="text-sm font-semibold">Compte Twitch</p>
           <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
             {isLinked
-              ? "Lié — tu peux parier depuis le chat Twitch avec !bet mvc et !bet reset."
+              ? "Lié — tu peux parier depuis le chat Twitch avec !bet mvc et !bet reset (tape !bet aide pour la liste complète)."
               : "Non lié — requis pour parier depuis le chat Twitch (Le Pari du Parry)."}
           </p>
         </div>

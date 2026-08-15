@@ -16,11 +16,14 @@ import {
   type StartggSet,
 } from "@/lib/startgg";
 import {
+  isHelpCommand,
   isMvcCommand,
   isResetCommand,
+  isTop8Command,
   matchCharacterName,
   parseMvcCommand,
   parseResetCommand,
+  parseTop8Target,
 } from "@/lib/chatBets";
 
 interface ChatMessageEvent {
@@ -45,6 +48,18 @@ async function reply(broadcasterId: string, message: string) {
 function accountLinkHint(): string {
   return SITE_URL ? ` : ${SITE_URL}/account` : " (page Compte du site)";
 }
+
+/**
+ * Nomenclature unifiée sous "!bet" (avec "!top8" gardé en alias historique) :
+ * envoyée sur "!bet", "!bet aide" ou "!bet help".
+ */
+const HELP_TEXT =
+  "Paris chat : !bet <joueur> (vainqueur d'un match) | " +
+  "!bet mvc <personnage> <0-8> (MVC) | !bet reset oui|non (reset de bracket) | " +
+  "!bet top8 <j1, j2, ..., j8> (pronostic top 8, alias : !top8). " +
+  "Compte Twitch lié requis pour mvc/reset" +
+  accountLinkHint() +
+  ".";
 
 const BET_COMMANDS = ["!bet", "!pari"];
 const TOP8_COMMANDS = ["!top8", "!top 8"];
@@ -384,9 +399,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // "!bet" seul, "!bet aide" ou "!bet help" : liste des commandes, sans
+  // avoir besoin d'un tournoi en cours.
+  if (betTarget !== null && isHelpCommand(betTarget)) {
+    await reply(broadcasterId, HELP_TEXT);
+    return NextResponse.json({ ok: true });
+  }
+
   // Sous-commandes "Le Pari du Parry" : contrairement au pari classique et
-  // au top 8 (qui restent silencieux en cas d'échec — comportement existant
-  // inchangé), elles répondent explicitement dans le chat pour chaque cas.
+  // au top 8 (y compris son alias "!bet top8", qui restent silencieux en cas
+  // d'échec — comportement existant inchangé), elles répondent explicitement
+  // dans le chat pour chaque cas.
   const isParrySubCommand =
     betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget));
 
@@ -410,6 +433,8 @@ export async function POST(request: Request) {
     await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);
   } else if (betTarget !== null && isResetCommand(betTarget)) {
     await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
+  } else if (betTarget !== null && isTop8Command(betTarget)) {
+    await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter);
   } else if (betTarget !== null) {
     await handleBetCommand(betTarget, tournament, chatter);
   } else if (top8Target !== null) {

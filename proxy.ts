@@ -2,9 +2,34 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 
+const APEX_HOST = "impactobet.fr";
+const CANONICAL_HOST = "www.impactobet.fr";
+
 const PUBLIC_PATHS = ["/login", "/register"];
 
-export default auth((req) => {
+export const proxy = auth((req) => {
+  // Les flux OAuth Twitch (bot, liaison de compte, connexion) exigent un
+  // redirect_uri identique au caractère près à celui enregistré côté Twitch
+  // (www.impactobet.fr) — ce redirect_uri est dérivé de l'origine de la
+  // requête en cours, donc visiter le site via le domaine nu (sans "www")
+  // produit un redirect_uri différent et fait échouer tout le flux avec
+  // "The provided redirect_uri does not match". On force donc "www" ici,
+  // avant même la logique d'authentification ci-dessous.
+  //
+  // req.nextUrl.hostname reflète l'adresse d'écoute du serveur, pas
+  // forcément le domaine réellement visité par le navigateur (confirmé en
+  // local : "localhost" même avec un en-tête Host différent) — on se base
+  // donc directement sur l'en-tête Host (ou X-Forwarded-Host derrière un
+  // proxy comme celui de Vercel), la seule source fiable du domaine visité.
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
+  if (host === APEX_HOST) {
+    const url = req.nextUrl.clone();
+    url.protocol = "https";
+    url.hostname = CANONICAL_HOST;
+    url.port = "";
+    return NextResponse.redirect(url, 308);
+  }
+
   const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
 

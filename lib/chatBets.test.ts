@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isHelpCommand,
   isMvcCommand,
   isResetCommand,
+  isTop8Command,
   matchCharacterName,
   normalizeForMatch,
   parseMvcCommand,
   parseResetCommand,
+  parseTop8Target,
 } from "./chatBets";
 
 const ROSTER = [
@@ -15,12 +18,13 @@ const ROSTER = [
   { id: "3", name: "Magneto" },
   { id: "4", name: "Iron Man" },
   { id: "5", name: "Star-Lord" },
+  { id: "6", name: "Spider-Man" },
 ];
 
 describe("normalizeForMatch", () => {
-  it("lowercases, strips accents, and collapses whitespace", () => {
-    expect(normalizeForMatch("  Étoile-Lord  ")).toBe("etoile-lord");
-    expect(normalizeForMatch("Ms.   Marvel")).toBe("ms. marvel");
+  it("lowercases, strips accents, and strips all punctuation/whitespace", () => {
+    expect(normalizeForMatch("  Étoile-Lord  ")).toBe("etoilelord");
+    expect(normalizeForMatch("Ms.   Marvel")).toBe("msmarvel");
   });
 });
 
@@ -32,6 +36,12 @@ describe("matchCharacterName", () => {
 
   it("matches a unique prefix", () => {
     expect(matchCharacterName("iron", ROSTER).match?.name).toBe("Iron Man");
+  });
+
+  it("matches a hyphenated name typed without punctuation/spaces", () => {
+    expect(matchCharacterName("spiderman", ROSTER).match?.name).toBe("Spider-Man");
+    expect(matchCharacterName("spider man", ROSTER).match?.name).toBe("Spider-Man");
+    expect(matchCharacterName("starlord", ROSTER).match?.name).toBe("Star-Lord");
   });
 
   it("suggests all candidates on an ambiguous prefix instead of guessing", () => {
@@ -76,6 +86,43 @@ describe("isMvcCommand / isResetCommand", () => {
   it("does not mistake a player name for a sub-command", () => {
     expect(isMvcCommand("Mulchy")).toBe(false);
     expect(isResetCommand("Reseter")).toBe(false);
+  });
+});
+
+describe("isTop8Command / parseTop8Target", () => {
+  it("recognizes '!bet top8' and '!bet top 8' regardless of case", () => {
+    expect(isTop8Command("top8 A, B, C")).toBe(true);
+    expect(isTop8Command("Top 8 A, B, C")).toBe(true);
+    expect(isTop8Command("TOP8")).toBe(true);
+    expect(isTop8Command("mvc Magik 3")).toBe(false);
+  });
+
+  it("does not mistake a player name for the top8 sub-command", () => {
+    expect(isTop8Command("Toplevel")).toBe(false);
+  });
+
+  it("extracts the names after the top8/top 8 prefix", () => {
+    expect(parseTop8Target("top8 A, B, C")).toBe("A, B, C");
+    expect(parseTop8Target("top 8 A, B, C")).toBe("A, B, C");
+  });
+
+  it("returns null when the target has no top8/top 8 prefix", () => {
+    expect(parseTop8Target("mvc Magik 3")).toBeNull();
+  });
+});
+
+describe("isHelpCommand", () => {
+  it("recognizes an empty target and 'aide'/'help' regardless of case", () => {
+    expect(isHelpCommand("")).toBe(true);
+    expect(isHelpCommand("   ")).toBe(true);
+    expect(isHelpCommand("aide")).toBe(true);
+    expect(isHelpCommand("AIDE")).toBe(true);
+    expect(isHelpCommand("help")).toBe(true);
+  });
+
+  it("does not mistake a real sub-command or player name for the help command", () => {
+    expect(isHelpCommand("mvc Magik 3")).toBe(false);
+    expect(isHelpCommand("Mulchy")).toBe(false);
   });
 });
 
