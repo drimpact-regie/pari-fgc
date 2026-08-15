@@ -51,6 +51,22 @@ export const BET_POINTS = {
 };
 
 /**
+ * Points "Le Pari du Parry" : prono Top 8 pondéré par placement réel, MVC
+ * (personnage) et reset de bracket. Classement séparé du LeaderBet des
+ * paris sur matchs.
+ */
+export const PARRY_POINTS = {
+  /** Points par placement réel d'un joueur pronostiqué dans le Top 8. */
+  top8ByPlacement: { 1: 10, 2: 8, 3: 6, 4: 6, 5: 3, 6: 3, 7: 3, 8: 3 } as Record<number, number>,
+  /** Points si le nombre d'apparitions du personnage MVC est deviné exactement. */
+  mvcExact: 5,
+  /** Points si le nombre deviné est à ±1 du résultat réel. */
+  mvcOffByOne: 2,
+  /** Points si le pari "reset de bracket" (oui/non) est correct. */
+  bracketReset: 3,
+};
+
+/**
  * Durée (en secondes) pendant laquelle les réponses de l'API start.gg
  * (matchs à venir, stats joueurs) sont mises en cache côté serveur avant
  * d'être rafraîchies. Évite de saturer le rate-limit de l'API pour un

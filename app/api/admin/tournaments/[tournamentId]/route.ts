@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeTwitchChannel } from "@/lib/normalize";
+import { computeBracketResetPoints } from "@/lib/scoring";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1, "Nom requis").max(80, "80 caractères maximum").optional(),
@@ -11,6 +12,10 @@ const updateSchema = z.object({
   // Set start.gg "en direct" pour le pari via chat. Chaîne vide = désactive.
   activeChatSetId: z.string().trim().optional(),
   topEightLocked: z.boolean().optional(),
+  bracketResetLocked: z.boolean().optional(),
+  // Résultat réel du reset de bracket — le fournir résout aussi tous les
+  // paris BracketResetBet en attente pour ce tournoi.
+  bracketResetActual: z.boolean().nullable().optional(),
 });
 
 export async function PATCH(
@@ -51,8 +56,34 @@ export async function PATCH(
       ...(parsed.data.topEightLocked !== undefined
         ? { topEightLocked: parsed.data.topEightLocked }
         : {}),
+      ...(parsed.data.bracketResetLocked !== undefined
+        ? { bracketResetLocked: parsed.data.bracketResetLocked }
+        : {}),
+      ...(parsed.data.bracketResetActual !== undefined
+        ? { bracketResetActual: parsed.data.bracketResetActual }
+        : {}),
     },
   });
+
+  if (parsed.data.bracketResetActual !== undefined && parsed.data.bracketResetActual !== null) {
+    const actualYes = parsed.data.bracketResetActual;
+    const pendingBets = await prisma.bracketResetBet.findMany({
+      where: { eventSlug: existing.eventSlug, status: "PENDING" },
+    });
+    await Promise.all(
+      pendingBets.map((bet) => {
+        const points = computeBracketResetPoints(bet.predictedYes, actualYes);
+        return prisma.bracketResetBet.update({
+          where: { id: bet.id },
+          data: {
+            status: points > 0 ? "WON" : "LOST",
+            pointsAwarded: points,
+            resolvedAt: new Date(),
+          },
+        });
+      }),
+    );
+  }
 
   return NextResponse.json({ tournament });
 }

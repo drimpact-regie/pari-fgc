@@ -1,9 +1,9 @@
 export interface LeaderboardRow {
   username: string;
   points: number;
-  won: number;
-  lost: number;
-  pending: number;
+  won?: number;
+  lost?: number;
+  pending?: number;
   /** Nombre de tournois distincts sur lesquels le parieur a misé (classement global uniquement). */
   tournamentsCount?: number;
 }
@@ -45,10 +45,12 @@ export default function LeaderboardTable({
   rows,
   emptyLabel,
   showTournamentsColumn = false,
+  showRecordColumns = true,
 }: {
   rows: LeaderboardRow[];
   emptyLabel: string;
   showTournamentsColumn?: boolean;
+  showRecordColumns?: boolean;
 }) {
   return (
     <div className="card overflow-hidden">
@@ -58,9 +60,13 @@ export default function LeaderboardTable({
             <th className="px-4 py-2 font-medium">#</th>
             <th className="px-4 py-2 font-medium">Parieur</th>
             <th className="px-4 py-2 font-medium">Points</th>
-            <th className="px-4 py-2 font-medium">Gagnés</th>
-            <th className="px-4 py-2 font-medium">Perdus</th>
-            <th className="px-4 py-2 font-medium">En attente</th>
+            {showRecordColumns && (
+              <>
+                <th className="px-4 py-2 font-medium">Gagnés</th>
+                <th className="px-4 py-2 font-medium">Perdus</th>
+                <th className="px-4 py-2 font-medium">En attente</th>
+              </>
+            )}
             {showTournamentsColumn && <th className="px-4 py-2 font-medium">Tournois</th>}
           </tr>
         </thead>
@@ -83,15 +89,19 @@ export default function LeaderboardTable({
                 <td className="px-4 py-2 font-semibold" style={{ color: "var(--accent)" }}>
                   {row.points}
                 </td>
-                <td className="px-4 py-2" style={{ color: "var(--win)" }}>
-                  {row.won}
-                </td>
-                <td className="px-4 py-2" style={{ color: "var(--lose)" }}>
-                  {row.lost}
-                </td>
-                <td className="px-4 py-2" style={{ color: "var(--muted)" }}>
-                  {row.pending}
-                </td>
+                {showRecordColumns && (
+                  <>
+                    <td className="px-4 py-2" style={{ color: "var(--win)" }}>
+                      {row.won ?? 0}
+                    </td>
+                    <td className="px-4 py-2" style={{ color: "var(--lose)" }}>
+                      {row.lost ?? 0}
+                    </td>
+                    <td className="px-4 py-2" style={{ color: "var(--muted)" }}>
+                      {row.pending ?? 0}
+                    </td>
+                  </>
+                )}
                 {showTournamentsColumn && (
                   <td className="px-4 py-2" style={{ color: "var(--muted)" }}>
                     {row.tournamentsCount ?? 0}

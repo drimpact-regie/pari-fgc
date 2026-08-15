@@ -635,6 +635,25 @@ export async function getPhaseGroupTopSeeds(
     .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name }));
 }
 
+/**
+ * Détecte un reset de bracket en grande finale : start.gg génère un set
+ * séparé ("Grand Final Reset") uniquement quand le joueur venant du loser
+ * bracket a gagné le premier set de la grande finale. Retourne null si on
+ * ne peut pas encore savoir (grande finale pas jouée/pas terminée) plutôt
+ * que de deviner — sert à pré-remplir la saisie admin, pas à la remplacer.
+ */
+export function detectBracketReset(completedSets: StartggSet[]): boolean | null {
+  const grandFinal = completedSets.find(
+    (set) => /grand final(?!s? reset)/i.test(set.fullRoundText) && set.winnerId != null,
+  );
+  if (!grandFinal) return null;
+
+  const reset = completedSets.find(
+    (set) => /grand final.*reset/i.test(set.fullRoundText) && set.winnerId != null,
+  );
+  return reset !== undefined;
+}
+
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */
 export interface PlayerRecord {
   entrant: StartggEntrant;

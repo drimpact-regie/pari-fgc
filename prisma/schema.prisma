@@ -42,6 +42,14 @@ model Tournament {
   // ou chat) — activé manuellement par un admin au moment où le tournoi
   // entre en phase Top 8.
   topEightLocked Boolean  @default(false)
+  // Verrouille le pari "Reset de bracket" (Le Pari du Parry) — séparé du
+  // verrou Top 8 car son timing naturel est bien plus tardif (juste avant
+  // la grande finale, pas avant le top 8).
+  bracketResetLocked Boolean @default(false)
+  // Résultat réel du reset de bracket en grande finale, saisi par un admin
+  // après le tournoi (auto-détecté quand possible via un set "Grand Final
+  // Reset" côté start.gg, mais reste modifiable manuellement).
+  bracketResetActual Boolean?
   createdAt     DateTime @default(now())
 }
 
@@ -60,6 +68,8 @@ model User {
   createdAt    DateTime @default(now())
   bets         Bet[]
   topEightPicks TopEightPick[]
+  mvcBets        MvcBet[]
+  bracketResetBets BracketResetBet[]
 }
 
 /**
@@ -78,6 +88,53 @@ model TopEightPick {
   picks     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventSlug])
+}
+
+/**
+ * Pari "MVC" (Most Valuable Character) — Le Pari du Parry : un joueur parie
+ * qu'un personnage donné apparaîtra un certain nombre de fois dans le top 8
+ * du tournoi. L'API start.gg n'expose pas le personnage joué par chaque
+ * entrant, donc `actualCount` est saisi manuellement par un admin après le
+ * tournoi (même valeur répliquée sur tous les paris portant sur ce
+ * personnage pour ce tournoi, plutôt qu'une table de résultats séparée).
+ */
+model MvcBet {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventSlug     String
+  // Personnage pronostiqué, normalisé en minuscules pour le regroupement à
+  // la résolution (le nom affiché garde la casse d'origine).
+  character     String
+  characterKey  String
+  predictedCount Int
+  actualCount   Int?
+  status        BetStatus @default(PENDING)
+  pointsAwarded Int       @default(0)
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@unique([userId, eventSlug])
+  @@index([eventSlug, characterKey])
+}
+
+/**
+ * Pari "Reset de bracket" (Oui/Non) — Le Pari du Parry : le joueur venant du
+ * loser bracket gagne-t-il le premier set de la grande finale, forçant un
+ * second set (bracket reset) ? Résultat réel sur Tournament.bracketResetActual.
+ */
+model BracketResetBet {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventSlug     String
+  predictedYes  Boolean
+  status        BetStatus @default(PENDING)
+  pointsAwarded Int       @default(0)
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
 
   @@unique([userId, eventSlug])
 }

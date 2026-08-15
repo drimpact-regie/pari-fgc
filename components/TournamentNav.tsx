@@ -13,6 +13,7 @@ const SECTIONS = [
   { slug: "players", label: "Joueurs" },
   { slug: "top8", label: "Top 8" },
   { slug: "leaderboard", label: "LeaderBet" },
+  { slug: "parry", label: "Le Pari du Parry" },
 ] as const;
 
 export default function TournamentNav({
