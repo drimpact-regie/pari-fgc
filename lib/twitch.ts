@@ -271,8 +271,9 @@ export async function createChatSubscription(params: {
 
   const json = await res.json().catch(() => null);
   if (!res.ok) {
+    const twitchMessage = json?.message ? ` — Twitch dit : "${json.message}"` : "";
     throw new TwitchApiError(
-      `Création de l'abonnement chat Twitch échouée (${res.status}). Le bot est-il modérateur de la chaîne ?`,
+      `Création de l'abonnement chat Twitch échouée (${res.status})${twitchMessage}`,
       json,
     );
   }
