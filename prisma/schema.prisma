@@ -32,6 +32,12 @@ model Tournament {
   // Chaîne Twitch à afficher en lecteur intégré sur les pages du tournoi
   // (juste le nom de la chaîne, ex: "mk_rza"), renseignée par un admin.
   twitchChannel String?
+  // Identifiant de l'abonnement EventSub Twitch actif pour cette chaîne
+  // (permet de le retrouver pour le supprimer/recréer).
+  twitchSubscriptionId String?
+  // Set start.gg actuellement "en direct" côté chat Twitch : les commandes
+  // !bet du chat parient sur ce match, choisi manuellement par un admin.
+  activeChatSetId       String?
   createdAt     DateTime @default(now())
 }
 
@@ -43,9 +49,28 @@ model User {
   // start.gg ou Discord) sans avoir à retoucher le modèle de données.
   discordId    String?  @unique
   startggId    String?  @unique
+  // Identifiant numérique Twitch (chatter_user_id) — rempli automatiquement
+  // quand quelqu'un parie depuis le chat sans compte préexistant sur le site.
+  twitchId     String?  @unique
   isAdmin      Boolean  @default(false)
   createdAt    DateTime @default(now())
   bets         Bet[]
+}
+
+/**
+ * Jeton d'accès du compte Twitch "bot" utilisé pour lire le chat via
+ * EventSub. Ligne unique (id fixe) — les tokens Twitch expirent et le
+ * refresh token change à chaque rafraîchissement, donc on les persiste ici
+ * plutôt que dans une variable d'environnement statique.
+ */
+model TwitchBotToken {
+  id           String   @id @default("singleton")
+  twitchUserId String
+  login        String
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  updatedAt    DateTime @updatedAt
 }
 
 model Bet {
