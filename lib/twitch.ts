@@ -238,25 +238,26 @@ export async function getTwitchUserByLogin(login: string): Promise<TwitchUser | 
  * compte bot doit être modérateur (ou avoir le scope channel:bot accordé
  * par le broadcaster) sur cette chaîne, sinon Twitch répond 403.
  *
- * Contrairement à la plupart des abonnements EventSub (créables avec un
- * jeton applicatif), "channel.chat.message" exige le jeton utilisateur du
- * compte bot lui-même — sinon Twitch répond "subscription missing proper
- * authorization".
+ * Les abonnements EventSub en transport "webhook" exigent un jeton
+ * applicatif (client_credentials) pour la création, même pour un type
+ * "chat" dont le condition.user_id référence un compte utilisateur — ce
+ * compte doit simplement avoir préalablement autorisé cette appli avec le
+ * scope user:read:chat (fait via /api/admin/twitch/connect).
  */
 export async function createChatSubscription(params: {
   broadcasterUserId: string;
   botUserId: string;
-  botAccessToken: string;
   callbackUrl: string;
   secret: string;
 }): Promise<string> {
   const clientId = requireEnv("TWITCH_CLIENT_ID");
+  const appToken = await getAppAccessToken();
 
   const res = await fetch(`${TWITCH_API_URL}/eventsub/subscriptions`, {
     method: "POST",
     headers: {
       "Client-Id": clientId,
-      Authorization: `Bearer ${params.botAccessToken}`,
+      Authorization: `Bearer ${appToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
