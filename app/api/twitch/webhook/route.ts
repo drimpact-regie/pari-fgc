@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { verifyWebhookSignature } from "@/lib/twitch";
-import { getSetResult, getStandings, getUpcomingSets, SET_STATE, type StartggSet } from "@/lib/startgg";
+import {
+  getSetResult,
+  getStandings,
+  getUpcomingSets,
+  SET_STATE,
+  type StartggEntrant,
+  type StartggSet,
+} from "@/lib/startgg";
 
 interface ChatMessageEvent {
   broadcaster_user_login: string;
@@ -71,10 +78,10 @@ async function ensureChatBettor(chatter: {
   }
 }
 
-function openEntrants(set: StartggSet): { id: string; name: string }[] {
+function openEntrants(set: StartggSet): StartggEntrant[] {
   return set.slots
     .map((slot) => slot.entrant)
-    .filter((e): e is { id: string; name: string } => e !== null);
+    .filter((e): e is StartggEntrant => e !== null);
 }
 
 async function placeChatBet(

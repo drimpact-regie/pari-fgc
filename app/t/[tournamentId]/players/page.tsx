@@ -4,11 +4,15 @@ import { getTournament } from "@/lib/tournaments";
 import {
   computeRecords,
   getCompletedSets,
+  getPlayerRecentStandings,
   getStandings,
   StartggApiError,
+  type PlayerHistoryEntry,
 } from "@/lib/startgg";
 
 export const dynamic = "force-dynamic";
+
+const TOP_CUTOFF = 16;
 
 export default async function PlayersPage({
   params,
@@ -34,6 +38,27 @@ export default async function PlayersPage({
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
 
+  // Classement simplifié: encore en course (pas de placement final) ou top 16.
+  const topStandings = standings
+    .filter((s) => s.entrant !== null)
+    .filter((s) => s.placement === null || s.placement <= TOP_CUTOFF);
+
+  const palmaresById = new Map<string, PlayerHistoryEntry[]>();
+  if (!error) {
+    await Promise.all(
+      topStandings.map(async (standing) => {
+        const playerId = standing.entrant!.playerId;
+        if (!playerId) return;
+        try {
+          const history = await getPlayerRecentStandings(playerId, 5);
+          palmaresById.set(standing.entrant!.id, history);
+        } catch {
+          // Palmarès indisponible pour ce joueur : on l'affiche simplement vide.
+        }
+      }),
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {error && (
@@ -54,31 +79,49 @@ export default async function PlayersPage({
                 <th className="px-4 py-2 font-medium">Joueur</th>
                 <th className="px-4 py-2 font-medium">Victoires</th>
                 <th className="px-4 py-2 font-medium">Défaites</th>
+                <th className="px-4 py-2 font-medium">Palmarès (5 derniers tournois)</th>
               </tr>
             </thead>
             <tbody>
-              {standings
-                .filter((s) => s.entrant !== null)
-                .map((standing) => {
-                  const record = records.get(standing.entrant!.id);
-                  return (
-                    <tr key={standing.entrant!.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                      <td className="px-4 py-2">{standing.placement ?? "—"}</td>
-                      <td className="px-4 py-2 font-medium">{standing.entrant!.name}</td>
-                      <td className="px-4 py-2" style={{ color: "var(--win)" }}>
-                        {record?.wins ?? 0}
-                      </td>
-                      <td className="px-4 py-2" style={{ color: "var(--lose)" }}>
-                        {record?.losses ?? 0}
-                      </td>
-                    </tr>
-                  );
-                })}
+              {topStandings.map((standing) => {
+                const entrant = standing.entrant!;
+                const record = records.get(entrant.id);
+                const history = palmaresById.get(entrant.id) ?? [];
+                return (
+                  <tr key={entrant.id} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
+                    <td className="px-4 py-2">{standing.placement ?? "—"}</td>
+                    <td className="px-4 py-2 font-medium">{entrant.name}</td>
+                    <td className="px-4 py-2" style={{ color: "var(--win)" }}>
+                      {record?.wins ?? 0}
+                    </td>
+                    <td className="px-4 py-2" style={{ color: "var(--lose)" }}>
+                      {record?.losses ?? 0}
+                    </td>
+                    <td className="px-4 py-2">
+                      {history.length === 0 ? (
+                        <span style={{ color: "var(--muted)" }}>—</span>
+                      ) : (
+                        <ul className="flex flex-col gap-0.5">
+                          {history.map((h, i) => (
+                            <li key={i} className="text-xs" style={{ color: "var(--muted)" }}>
+                              <span style={{ color: "var(--foreground)" }}>
+                                {h.tournamentName || h.eventName}
+                              </span>
+                              {" — "}
+                              {h.placement != null ? `${h.placement}e` : "?"}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          {standings.length === 0 && (
+          {topStandings.length === 0 && (
             <p className="p-4 text-sm" style={{ color: "var(--muted)" }}>
-              Aucun classement disponible pour le moment.
+              Aucun joueur dans le top {TOP_CUTOFF} pour le moment.
             </p>
           )}
         </div>

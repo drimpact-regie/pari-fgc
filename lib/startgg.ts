@@ -80,6 +80,8 @@ async function callStartGG<T>(
 export interface StartggEntrant {
   id: string;
   name: string;
+  /** Identifiant joueur stable (participants.player.id), pour croiser son historique. */
+  playerId: string | null;
 }
 
 export interface StartggSetSlot {
@@ -128,6 +130,13 @@ export interface StartggPhase {
 export interface StartggStanding {
   placement: number | null;
   entrant: StartggEntrant | null;
+}
+
+/** Un résultat passé d'un joueur sur un tournoi (palmarès). */
+export interface PlayerHistoryEntry {
+  placement: number | null;
+  eventName: string;
+  tournamentName: string;
 }
 
 export interface StartggEventInfo {
@@ -279,6 +288,30 @@ const STANDINGS_QUERY = /* GraphQL */ `
           entrant {
             id
             name
+            participants {
+              player {
+                id
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Historique récent d'un joueur (tous tournois start.gg confondus) — sert au palmarès. */
+const PLAYER_RECENT_STANDINGS_QUERY = /* GraphQL */ `
+  query PlayerRecentStandings($playerId: ID!, $limit: Int!) {
+    player(id: $playerId) {
+      recentStandings(limit: $limit) {
+        placement
+        entrant {
+          event {
+            name
+            tournament {
+              name
+            }
           }
         }
       }
@@ -372,20 +405,33 @@ export async function getEventPhases(
   return (data.event?.phases ?? []).map((p) => ({ id: String(p.id), name: p.name }));
 }
 
+/** Forme brute d'un entrant telle que renvoyée par l'API (avant normalisation). */
+interface RawStartggEntrant {
+  id: string | number;
+  name: string;
+  participants?: { player: { id: string | number } | null }[] | null;
+}
+
 /**
  * L'API start.gg renvoie `entrant.id` (et `set.id`) en tant que nombre côté
  * JSON, alors qu'on les manipule comme des chaînes partout dans l'app
  * (formulaires, validation Zod, clés Prisma). On normalise donc en string
  * dès la sortie de l'API pour éviter tout mismatch de type en aval.
  */
-function normalizeEntrant(entrant: StartggEntrant | null): StartggEntrant | null {
+function normalizeEntrant(entrant: RawStartggEntrant | null): StartggEntrant | null {
   if (!entrant) return null;
-  return { id: String(entrant.id), name: entrant.name };
+  const playerId = entrant.participants?.[0]?.player?.id;
+  return {
+    id: String(entrant.id),
+    name: entrant.name,
+    playerId: playerId != null ? String(playerId) : null,
+  };
 }
 
 /** Forme brute d'un set telle que renvoyée par l'API (avant normalisation). */
 interface RawStartggSet
-  extends Omit<StartggSet, "phaseGroupId" | "poolLabel" | "phaseId" | "phaseName"> {
+  extends Omit<StartggSet, "phaseGroupId" | "poolLabel" | "phaseId" | "phaseName" | "slots"> {
+  slots: { entrant: RawStartggEntrant | null }[];
   phaseGroup: {
     id: string | number;
     displayIdentifier: string | null;
@@ -405,8 +451,13 @@ function normalizeSet(set: RawStartggSet): StartggSet {
   };
 }
 
-function normalizeStanding(standing: StartggStanding): StartggStanding {
-  return { ...standing, entrant: normalizeEntrant(standing.entrant) };
+interface RawStartggStanding {
+  placement: number | null;
+  entrant: RawStartggEntrant | null;
+}
+
+function normalizeStanding(standing: RawStartggStanding): StartggStanding {
+  return { placement: standing.placement, entrant: normalizeEntrant(standing.entrant) };
 }
 
 export async function getUpcomingSets(
@@ -444,12 +495,12 @@ export async function getCompletedSets(
 export async function getStandings(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggStanding[]> {
-  const standings = await fetchAllPages<StartggStanding>(async (page) => {
+  const standings = await fetchAllPages<RawStartggStanding>(async (page) => {
     const data = await callStartGG<{
       event: {
         standings: {
           pageInfo: { totalPages: number };
-          nodes: StartggStanding[];
+          nodes: RawStartggStanding[];
         } | null;
       } | null;
     }>(STANDINGS_QUERY, { eventSlug, page, perPage: PER_PAGE });
@@ -461,6 +512,38 @@ export async function getStandings(
     };
   });
   return standings.map(normalizeStanding);
+}
+
+/**
+ * Palmarès d'un joueur: ses N derniers résultats de tournoi côté start.gg
+ * (tous tournois confondus, pas seulement ceux suivis par l'app). Nécessite
+ * le playerId stable (participants.player.id), pas l'entrantId (qui change
+ * à chaque tournoi).
+ */
+export async function getPlayerRecentStandings(
+  playerId: string,
+  limit = 5,
+): Promise<PlayerHistoryEntry[]> {
+  const data = await callStartGG<{
+    player: {
+      recentStandings: {
+        placement: number | null;
+        entrant: {
+          event: { name: string; tournament: { name: string } | null } | null;
+        } | null;
+      }[] | null;
+    } | null;
+  }>(PLAYER_RECENT_STANDINGS_QUERY, { playerId, limit });
+
+  return (data.player?.recentStandings ?? [])
+    .filter((s): s is typeof s & { entrant: { event: { name: string; tournament: { name: string } | null } } } =>
+      s.entrant?.event != null,
+    )
+    .map((s) => ({
+      placement: s.placement,
+      eventName: s.entrant.event.name,
+      tournamentName: s.entrant.event.tournament?.name ?? "",
+    }));
 }
 
 export async function getSetResult(setId: string): Promise<StartggSet | null> {

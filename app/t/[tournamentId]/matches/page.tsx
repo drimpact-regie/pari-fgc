@@ -9,6 +9,7 @@ import {
   getUpcomingSets,
   SET_STATE,
   StartggApiError,
+  type StartggEntrant,
   type StartggPhase,
   type StartggSeed,
   type StartggSet,
@@ -205,10 +206,7 @@ export default async function MatchesPage({
                       {group.sets.map((set) => {
                         const entrants = set.slots
                           .map((slot) => slot.entrant)
-                          .filter(
-                            (entrant): entrant is { id: string; name: string } =>
-                              entrant !== null,
-                          );
+                          .filter((entrant): entrant is StartggEntrant => entrant !== null);
                         const bet = betBySetId.get(set.id);
 
                         return (
