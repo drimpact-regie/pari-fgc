@@ -154,6 +154,8 @@ export interface StartggEventInfo {
   tournamentName: string;
   /** Image de bannière/fond du tournoi (côté start.gg), si disponible. */
   bannerUrl: string | null;
+  /** Nom du jeu de l'event, sert à filtrer le roster de personnages (MVC). */
+  videogameName: string | null;
 }
 
 // --- Requêtes GraphQL --------------------------------------------------------
@@ -165,6 +167,9 @@ const EVENT_INFO_QUERY = /* GraphQL */ `
       name
       state
       numEntrants
+      videogame {
+        name
+      }
       tournament {
         name
         images {
@@ -413,6 +418,7 @@ export async function getEventInfo(
       name: string;
       state: string | null;
       numEntrants: number | null;
+      videogame: { name: string } | null;
       tournament: {
         name: string;
         images: { url: string; type: string | null }[] | null;
@@ -432,6 +438,7 @@ export async function getEventInfo(
     numEntrants: data.event.numEntrants,
     tournamentName: data.event.tournament?.name ?? "",
     bannerUrl: banner?.url ?? null,
+    videogameName: data.event.videogame?.name ?? null,
   };
 }
 
@@ -652,6 +659,33 @@ export function detectBracketReset(completedSets: StartggSet[]): boolean | null 
     (set) => /grand final.*reset/i.test(set.fullRoundText) && set.winnerId != null,
   );
   return reset !== undefined;
+}
+
+/**
+ * Le pari MVC se verrouille "une étape avant le top 8" : on cherche le plus
+ * petit "Top N" (N > 8) présent dans les rounds de l'event (ex. Top 16,
+ * Top 24, Top 32 selon la taille du bracket) et on verrouille dès qu'un set
+ * de ce round a démarré. S'il n'existe aucun round "Top N" intermédiaire
+ * (petit bracket qui va direct au top 8), on retombe sur `topEightLocked`.
+ */
+export function isMvcLocked(allSets: StartggSet[], topEightLocked: boolean): boolean {
+  let cutoffRound: number | null = null;
+  for (const set of allSets) {
+    const match = /^top (\d+)$/i.exec(set.fullRoundText.trim());
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (n > 8 && (cutoffRound === null || n < cutoffRound)) {
+      cutoffRound = n;
+    }
+  }
+
+  if (cutoffRound === null) return topEightLocked;
+
+  return allSets.some(
+    (set) =>
+      /^top (\d+)$/i.exec(set.fullRoundText.trim())?.[1] === String(cutoffRound) &&
+      set.state !== SET_STATE.NOT_STARTED,
+  );
 }
 
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */

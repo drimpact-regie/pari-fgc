@@ -58,12 +58,10 @@ export const BET_POINTS = {
 export const PARRY_POINTS = {
   /** Points par placement réel d'un joueur pronostiqué dans le Top 8. */
   top8ByPlacement: { 1: 10, 2: 8, 3: 6, 4: 6, 5: 3, 6: 3, 7: 3, 8: 3 } as Record<number, number>,
-  /** Points si le nombre d'apparitions du personnage MVC est deviné exactement. */
-  mvcExact: 5,
-  /** Points si le nombre deviné est à ±1 du résultat réel. */
-  mvcOffByOne: 2,
+  /** Points si le nombre d'apparitions du personnage MVC est deviné exactement (pas de barème dégressif). */
+  mvcExact: 8,
   /** Points si le pari "reset de bracket" (oui/non) est correct. */
-  bracketReset: 3,
+  bracketReset: 4,
 };
 
 /**

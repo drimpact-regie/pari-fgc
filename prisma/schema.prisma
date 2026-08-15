@@ -93,6 +93,24 @@ model TopEightPick {
 }
 
 /**
+ * Roster de personnages jouables d'un jeu, réutilisable par tous les
+ * tournois de ce jeu (identifié par le nom renvoyé par start.gg via
+ * `event.videogame.name`). `imageUrl` reste vide quand aucune image fiable
+ * n'a été trouvée — à compléter manuellement plutôt que d'afficher un
+ * visuel potentiellement incorrect.
+ */
+model Character {
+  id        String   @id @default(cuid())
+  game      String
+  name      String
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  mvcBets   MvcBet[]
+
+  @@unique([game, name])
+}
+
+/**
  * Pari "MVC" (Most Valuable Character) — Le Pari du Parry : un joueur parie
  * qu'un personnage donné apparaîtra un certain nombre de fois dans le top 8
  * du tournoi. L'API start.gg n'expose pas le personnage joué par chaque
@@ -101,23 +119,21 @@ model TopEightPick {
  * personnage pour ce tournoi, plutôt qu'une table de résultats séparée).
  */
 model MvcBet {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  eventSlug     String
-  // Personnage pronostiqué, normalisé en minuscules pour le regroupement à
-  // la résolution (le nom affiché garde la casse d'origine).
-  character     String
-  characterKey  String
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventSlug      String
+  characterId    String
+  character      Character @relation(fields: [characterId], references: [id])
   predictedCount Int
-  actualCount   Int?
-  status        BetStatus @default(PENDING)
-  pointsAwarded Int       @default(0)
-  createdAt     DateTime  @default(now())
-  resolvedAt    DateTime?
+  actualCount    Int?
+  status         BetStatus @default(PENDING)
+  pointsAwarded  Int       @default(0)
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
 
   @@unique([userId, eventSlug])
-  @@index([eventSlug, characterKey])
+  @@index([eventSlug, characterId])
 }
 
 /**

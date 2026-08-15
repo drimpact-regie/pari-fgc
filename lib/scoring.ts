@@ -81,13 +81,10 @@ export function computeTop8PickPoints(placement: number | null): number {
   return PARRY_POINTS.top8ByPlacement[placement] ?? 0;
 }
 
-/** Points MVC : nombre d'apparitions du personnage deviné, exact ou à ±1 près. */
+/** Points MVC : nombre d'apparitions du personnage deviné exactement (pas de barème dégressif). */
 export function computeMvcPoints(predictedCount: number, actualCount: number | null): number {
   if (actualCount == null) return 0;
-  const diff = Math.abs(predictedCount - actualCount);
-  if (diff === 0) return PARRY_POINTS.mvcExact;
-  if (diff === 1) return PARRY_POINTS.mvcOffByOne;
-  return 0;
+  return predictedCount === actualCount ? PARRY_POINTS.mvcExact : 0;
 }
 
 /** Points reset de bracket : pari oui/non correct. */

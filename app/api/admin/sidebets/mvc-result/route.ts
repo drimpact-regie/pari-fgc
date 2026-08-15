@@ -8,7 +8,7 @@ import { computeMvcPoints } from "@/lib/scoring";
 
 const resultSchema = z.object({
   tournamentId: z.string().min(1),
-  characterKey: z.string().min(1),
+  characterId: z.string().min(1),
   actualCount: z.number().int().min(0).max(8),
 });
 
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { tournamentId, characterKey, actualCount } = parsed.data;
+  const { tournamentId, characterId, actualCount } = parsed.data;
 
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   }
 
   const bets = await prisma.mvcBet.findMany({
-    where: { eventSlug: tournament.eventSlug, characterKey },
+    where: { eventSlug: tournament.eventSlug, characterId },
   });
 
   await Promise.all(

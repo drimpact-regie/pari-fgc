@@ -3,7 +3,15 @@ import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
-import { detectBracketReset, getCompletedSets, getStandings, StartggApiError } from "@/lib/startgg";
+import {
+  detectBracketReset,
+  getCompletedSets,
+  getEventInfo,
+  getStandings,
+  getUpcomingSets,
+  isMvcLocked,
+  StartggApiError,
+} from "@/lib/startgg";
 import { computeTop8PickPoints } from "@/lib/scoring";
 import Top8PickForm, { type PickStatus } from "@/components/Top8PickForm";
 import MvcBetForm from "@/components/MvcBetForm";
@@ -39,13 +47,19 @@ export default async function ParryPage({
   let standings: Awaited<ReturnType<typeof getStandings>> = [];
   let error: string | null = null;
   let detectedBracketReset: boolean | null = null;
+  let mvcLocked = tournament.topEightLocked;
+  let videogameName: string | null = null;
   try {
-    const [standingsResult, completedSets] = await Promise.all([
+    const [standingsResult, completedSets, upcomingSets, eventInfo] = await Promise.all([
       getStandings(tournament.eventSlug),
       getCompletedSets(tournament.eventSlug),
+      getUpcomingSets(tournament.eventSlug),
+      getEventInfo(tournament.eventSlug),
     ]);
     standings = standingsResult;
     detectedBracketReset = detectBracketReset(completedSets);
+    mvcLocked = isMvcLocked([...upcomingSets, ...completedSets], tournament.topEightLocked);
+    videogameName = eventInfo?.videogameName ?? null;
   } catch (err) {
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
@@ -57,7 +71,7 @@ export default async function ParryPage({
     standings.filter((s) => s.entrant).map((s) => [s.entrant!.id, s.placement]),
   );
 
-  const [myPick, allPicks, myMvcBet, allMvcBets, myBracketBet, allBracketBets] =
+  const [myPick, allPicks, myMvcBet, allMvcBets, myBracketBet, allBracketBets, characters] =
     await Promise.all([
       prisma.topEightPick.findUnique({
         where: { userId_eventSlug: { userId: session.user.id, eventSlug: tournament.eventSlug } },
@@ -68,10 +82,11 @@ export default async function ParryPage({
       }),
       prisma.mvcBet.findUnique({
         where: { userId_eventSlug: { userId: session.user.id, eventSlug: tournament.eventSlug } },
+        include: { character: true },
       }),
       prisma.mvcBet.findMany({
         where: { eventSlug: tournament.eventSlug },
-        include: { user: { select: { username: true } } },
+        include: { user: { select: { username: true } }, character: true },
       }),
       prisma.bracketResetBet.findUnique({
         where: { userId_eventSlug: { userId: session.user.id, eventSlug: tournament.eventSlug } },
@@ -80,6 +95,9 @@ export default async function ParryPage({
         where: { eventSlug: tournament.eventSlug },
         include: { user: { select: { username: true } } },
       }),
+      videogameName
+        ? prisma.character.findMany({ where: { game: videogameName }, orderBy: { name: "asc" } })
+        : Promise.resolve([]),
     ]);
 
   const initialPicks: StoredPick[] = (myPick?.picks as unknown as StoredPick[] | undefined) ?? [];
@@ -120,15 +138,15 @@ export default async function ParryPage({
     allMvcBets
       .filter((b) => b.status === "PENDING")
       .reduce((map, b) => {
-        const entry = map.get(b.characterKey) ?? {
-          characterKey: b.characterKey,
-          character: b.character,
+        const entry = map.get(b.characterId) ?? {
+          characterId: b.characterId,
+          character: b.character.name,
           betCount: 0,
         };
         entry.betCount += 1;
-        map.set(b.characterKey, entry);
+        map.set(b.characterId, entry);
         return map;
-      }, new Map<string, { characterKey: string; character: string; betCount: number }>())
+      }, new Map<string, { characterId: string; character: string; betCount: number }>())
       .values(),
   );
 
@@ -147,6 +165,7 @@ export default async function ParryPage({
           bracketResetActual={tournament.bracketResetActual}
           detectedBracketReset={detectedBracketReset}
           pendingCharacters={pendingCharacters}
+          videogameName={videogameName}
         />
       )}
 
@@ -168,7 +187,8 @@ export default async function ParryPage({
 
       <MvcBetForm
         tournamentId={tournamentId}
-        locked={tournament.topEightLocked}
+        characters={characters}
+        locked={mvcLocked}
         initialCharacter={myMvcBet?.character ?? null}
         initialPredictedCount={myMvcBet?.predictedCount ?? null}
         actualCount={myMvcBet?.actualCount ?? null}
