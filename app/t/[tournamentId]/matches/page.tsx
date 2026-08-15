@@ -4,10 +4,12 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import {
+  getEventPhases,
   getPhaseGroupTopSeeds,
   getUpcomingSets,
   SET_STATE,
   StartggApiError,
+  type StartggPhase,
   type StartggSeed,
   type StartggSet,
 } from "@/lib/startgg";
@@ -19,27 +21,49 @@ interface RoundGroup {
   sets: StartggSet[];
 }
 
+interface PhaseSection {
+  phaseId: string;
+  phaseName: string;
+  roundGroups: RoundGroup[];
+}
+
 /**
- * Regroupe les sets par étape (round) ET par poule (phaseGroup), en
- * conservant l'ordre déjà renvoyé par start.gg (sortType: STANDARD). Deux
- * poules en parallèle peuvent partager le même libellé de round ("Round 1"),
- * il faut donc les distinguer par phaseGroupId pour ne pas les fusionner.
+ * Regroupe les sets par étape/bracket (phase) puis par round et poule
+ * (phaseGroup) à l'intérieur, en conservant l'ordre déjà renvoyé par
+ * start.gg. Toutes les phases de l'event apparaissent, même celles sans
+ * set actuellement disponible (bracket pas encore ouvert) — c'est le but :
+ * voir l'agenda complet et pouvoir déplier une étape dès qu'elle s'ouvre.
  */
-function groupByRound(sets: StartggSet[]): RoundGroup[] {
-  const groups = new Map<string, RoundGroup>();
+function buildPhaseSections(phases: StartggPhase[], sets: StartggSet[]): PhaseSection[] {
+  const sections = new Map<string, PhaseSection>();
+  for (const phase of phases) {
+    sections.set(phase.id, { phaseId: phase.id, phaseName: phase.name, roundGroups: [] });
+  }
+
+  const roundGroupsByKey = new Map<string, RoundGroup>();
+
   for (const set of sets) {
-    const key = `${set.fullRoundText || "Autre"}::${set.phaseGroupId ?? ""}`;
-    const group = groups.get(key);
-    if (group) {
-      group.sets.push(set);
-    } else {
+    const phaseId = set.phaseId ?? "autre";
+    let section = sections.get(phaseId);
+    if (!section) {
+      section = { phaseId, phaseName: set.phaseName ?? "Autre", roundGroups: [] };
+      sections.set(phaseId, section);
+    }
+
+    const roundKey = `${phaseId}::${set.fullRoundText || "Autre"}::${set.phaseGroupId ?? ""}`;
+    let roundGroup = roundGroupsByKey.get(roundKey);
+    if (!roundGroup) {
       const label = set.poolLabel
         ? `${set.fullRoundText || "Autre"} — Poule ${set.poolLabel}`
         : set.fullRoundText || "Autre";
-      groups.set(key, { label, phaseGroupId: set.phaseGroupId, sets: [set] });
+      roundGroup = { label, phaseGroupId: set.phaseGroupId, sets: [] };
+      roundGroupsByKey.set(roundKey, roundGroup);
+      section.roundGroups.push(roundGroup);
     }
+    roundGroup.sets.push(set);
   }
-  return Array.from(groups.values());
+
+  return Array.from(sections.values());
 }
 
 export const dynamic = "force-dynamic";
@@ -56,10 +80,14 @@ export default async function MatchesPage({
   const tournament = await getTournament(tournamentId);
   if (!tournament) notFound();
 
-  let sets: Awaited<ReturnType<typeof getUpcomingSets>> = [];
+  let sets: StartggSet[] = [];
+  let phases: StartggPhase[] = [];
   let error: string | null = null;
   try {
-    sets = await getUpcomingSets(tournament.eventSlug);
+    [sets, phases] = await Promise.all([
+      getUpcomingSets(tournament.eventSlug),
+      getEventPhases(tournament.eventSlug),
+    ]);
   } catch (err) {
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
@@ -69,15 +97,13 @@ export default async function MatchesPage({
   });
   const betBySetId = new Map(userBets.map((bet) => [bet.setId, bet]));
 
-  const roundGroups = groupByRound(sets);
+  const phaseSections = buildPhaseSections(phases, sets);
 
-  // Têtes de série affichées uniquement pour les poules identifiées (plusieurs
-  // groupes en parallèle) — pas pour chaque round d'un bracket classique, où
-  // ce serait redondant. Purement cosmétique : une poule sans seeds
-  // disponibles reste affichée sans la ligne "Têtes de série".
-  const poolGroups = roundGroups.filter(
-    (g) => g.phaseGroupId && g.sets.some((s) => s.poolLabel),
-  );
+  // Têtes de série affichées uniquement pour les poules identifiées — pas
+  // pour chaque round d'un bracket classique, où ce serait redondant.
+  const poolGroups = phaseSections
+    .flatMap((s) => s.roundGroups)
+    .filter((g) => g.phaseGroupId && g.sets.some((s) => s.poolLabel));
   const seedsByPhaseGroup = new Map<string, StartggSeed[]>(
     (
       await Promise.all(
@@ -101,54 +127,102 @@ export default async function MatchesPage({
         </div>
       )}
 
-      {!error && sets.length === 0 && (
-        <p style={{ color: "var(--muted)" }}>Aucun match à venir pour le moment.</p>
+      {!error && phaseSections.length === 0 && (
+        <p style={{ color: "var(--muted)" }}>Aucune étape disponible pour le moment.</p>
       )}
 
-      {roundGroups.map((group) => {
-        const openCount = group.sets.filter(
-          (set) => set.state === SET_STATE.NOT_STARTED,
-        ).length;
-        const seeds = group.phaseGroupId ? seedsByPhaseGroup.get(group.phaseGroupId) : undefined;
+      {phaseSections.map((phase) => {
+        const totalSets = phase.roundGroups.reduce((n, g) => n + g.sets.length, 0);
+        const openSets = phase.roundGroups.reduce(
+          (n, g) => n + g.sets.filter((s) => s.state === SET_STATE.NOT_STARTED).length,
+          0,
+        );
 
         return (
-          <details key={group.label + group.phaseGroupId} className="card group" open={false}>
+          <details key={phase.phaseId} className="card">
             <summary
-              className="flex flex-col gap-1 px-4 py-3 cursor-pointer select-none list-none"
+              className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none list-none"
               style={{ borderLeft: "3px solid var(--accent)" }}
             >
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold uppercase tracking-wide">
-                  {group.label}
-                </span>
-                <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>
-                  {group.sets.length} match{group.sets.length > 1 ? "s" : ""}
-                  {openCount > 0 ? ` · ${openCount} ouvert${openCount > 1 ? "s" : ""}` : ""}
-                </span>
-              </div>
-              {seeds && seeds.length > 0 && (
-                <p className="text-xs italic" style={{ color: "var(--muted)" }}>
-                  Têtes de série :{" "}
-                  {seeds.map((s) => `${s.entrantName} (#${s.seedNum})`).join(", ")}
+              <span className="text-base font-bold">{phase.phaseName}</span>
+              <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>
+                {totalSets === 0
+                  ? "Pas encore ouvert"
+                  : `${totalSets} match${totalSets > 1 ? "s" : ""}${openSets > 0 ? ` · ${openSets} ouvert${openSets > 1 ? "s" : ""}` : ""}`}
+              </span>
+            </summary>
+
+            <div className="flex flex-col gap-3 p-4 pt-0">
+              {phase.roundGroups.length === 0 && (
+                <p className="text-sm" style={{ color: "var(--muted)" }}>
+                  Cette étape n&apos;est pas encore disponible sur start.gg (bracket pas
+                  encore généré).
                 </p>
               )}
-            </summary>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 pt-0">
-              {group.sets.map((set) => {
-                const entrants = set.slots
-                  .map((slot) => slot.entrant)
-                  .filter((entrant): entrant is { id: string; name: string } => entrant !== null);
-                const bet = betBySetId.get(set.id);
+
+              {phase.roundGroups.map((group) => {
+                const openCount = group.sets.filter(
+                  (set) => set.state === SET_STATE.NOT_STARTED,
+                ).length;
+                const seeds = group.phaseGroupId
+                  ? seedsByPhaseGroup.get(group.phaseGroupId)
+                  : undefined;
 
                 return (
-                  <BetCard
-                    key={set.id}
-                    tournamentId={tournamentId}
-                    setId={set.id}
-                    entrants={entrants}
-                    locked={set.state !== SET_STATE.NOT_STARTED}
-                    existingBetEntrantName={bet?.predictedEntrantName ?? null}
-                  />
+                  <details
+                    key={group.label + group.phaseGroupId}
+                    className="card"
+                    style={{ background: "var(--surface-alt)" }}
+                    open={false}
+                  >
+                    <summary
+                      className="flex flex-col gap-1 px-4 py-3 cursor-pointer select-none list-none"
+                      style={{ borderLeft: "3px solid var(--accent)" }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold uppercase tracking-wide">
+                          {group.label}
+                        </span>
+                        <span
+                          className="text-xs whitespace-nowrap"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          {group.sets.length} match{group.sets.length > 1 ? "s" : ""}
+                          {openCount > 0
+                            ? ` · ${openCount} ouvert${openCount > 1 ? "s" : ""}`
+                            : ""}
+                        </span>
+                      </div>
+                      {seeds && seeds.length > 0 && (
+                        <p className="text-xs italic" style={{ color: "var(--muted)" }}>
+                          Têtes de série :{" "}
+                          {seeds.map((s) => `${s.entrantName} (#${s.seedNum})`).join(", ")}
+                        </p>
+                      )}
+                    </summary>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 pt-0">
+                      {group.sets.map((set) => {
+                        const entrants = set.slots
+                          .map((slot) => slot.entrant)
+                          .filter(
+                            (entrant): entrant is { id: string; name: string } =>
+                              entrant !== null,
+                          );
+                        const bet = betBySetId.get(set.id);
+
+                        return (
+                          <BetCard
+                            key={set.id}
+                            tournamentId={tournamentId}
+                            setId={set.id}
+                            entrants={entrants}
+                            locked={set.state !== SET_STATE.NOT_STARTED}
+                            existingBetEntrantName={bet?.predictedEntrantName ?? null}
+                          />
+                        );
+                      })}
+                    </div>
+                  </details>
                 );
               })}
             </div>

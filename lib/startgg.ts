@@ -104,11 +104,25 @@ export interface StartggSet {
   phaseGroupId: string | null;
   /** Identifiant affiché de la poule (ex: "A", "1"), quand il y en a plusieurs en parallèle. */
   poolLabel: string | null;
+  /** Étape/bracket start.gg (ex: "Round 1 Pools", "Top 192", "Bracket final"). */
+  phaseId: string | null;
+  phaseName: string | null;
 }
 
 export interface StartggSeed {
   seedNum: number;
   entrantName: string;
+}
+
+/**
+ * Une "phase" côté start.gg = un bracket/étape du tournoi (poules, top 192,
+ * bracket final, etc.). Un event peut en avoir plusieurs selon son
+ * avancement — récupérées indépendamment des sets pour pouvoir afficher les
+ * étapes à venir même avant que start.gg n'y ait généré le moindre match.
+ */
+export interface StartggPhase {
+  id: string;
+  name: string;
 }
 
 export interface StartggStanding {
@@ -174,6 +188,10 @@ const UPCOMING_SETS_QUERY = /* GraphQL */ `
           phaseGroup {
             id
             displayIdentifier
+            phase {
+              id
+              name
+            }
           }
         }
       }
@@ -209,8 +227,24 @@ const COMPLETED_SETS_QUERY = /* GraphQL */ `
           phaseGroup {
             id
             displayIdentifier
+            phase {
+              id
+              name
+            }
           }
         }
+      }
+    }
+  }
+`;
+
+/** Liste des étapes/brackets de l'event, indépendamment des sets déjà générés. */
+const EVENT_PHASES_QUERY = /* GraphQL */ `
+  query EventPhases($eventSlug: String!) {
+    event(slug: $eventSlug) {
+      phases {
+        id
+        name
       }
     }
   }
@@ -323,6 +357,22 @@ export async function getEventInfo(
 }
 
 /**
+ * Liste toutes les étapes/brackets de l'event dans l'ordre défini par
+ * start.gg, y compris celles pas encore ouvertes (aucun set généré) — sert
+ * à afficher l'agenda complet du tournoi plutôt que seulement l'étape en
+ * cours.
+ */
+export async function getEventPhases(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggPhase[]> {
+  const data = await callStartGG<{
+    event: { phases: { id: string | number; name: string }[] | null } | null;
+  }>(EVENT_PHASES_QUERY, { eventSlug });
+
+  return (data.event?.phases ?? []).map((p) => ({ id: String(p.id), name: p.name }));
+}
+
+/**
  * L'API start.gg renvoie `entrant.id` (et `set.id`) en tant que nombre côté
  * JSON, alors qu'on les manipule comme des chaînes partout dans l'app
  * (formulaires, validation Zod, clés Prisma). On normalise donc en string
@@ -334,8 +384,13 @@ function normalizeEntrant(entrant: StartggEntrant | null): StartggEntrant | null
 }
 
 /** Forme brute d'un set telle que renvoyée par l'API (avant normalisation). */
-interface RawStartggSet extends Omit<StartggSet, "phaseGroupId" | "poolLabel"> {
-  phaseGroup: { id: string | number; displayIdentifier: string | null } | null;
+interface RawStartggSet
+  extends Omit<StartggSet, "phaseGroupId" | "poolLabel" | "phaseId" | "phaseName"> {
+  phaseGroup: {
+    id: string | number;
+    displayIdentifier: string | null;
+    phase: { id: string | number; name: string } | null;
+  } | null;
 }
 
 function normalizeSet(set: RawStartggSet): StartggSet {
@@ -345,6 +400,8 @@ function normalizeSet(set: RawStartggSet): StartggSet {
     slots: set.slots.map((slot) => ({ entrant: normalizeEntrant(slot.entrant) })),
     phaseGroupId: set.phaseGroup ? String(set.phaseGroup.id) : null,
     poolLabel: set.phaseGroup?.displayIdentifier || null,
+    phaseId: set.phaseGroup?.phase ? String(set.phaseGroup.phase.id) : null,
+    phaseName: set.phaseGroup?.phase?.name ?? null,
   };
 }
 
