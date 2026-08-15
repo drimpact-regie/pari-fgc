@@ -100,6 +100,15 @@ export interface StartggSet {
   state: number;
   winnerId: number | null;
   slots: StartggSetSlot[];
+  /** Identifiant de la poule/phaseGroup start.gg à laquelle ce set appartient. */
+  phaseGroupId: string | null;
+  /** Identifiant affiché de la poule (ex: "A", "1"), quand il y en a plusieurs en parallèle. */
+  poolLabel: string | null;
+}
+
+export interface StartggSeed {
+  seedNum: number;
+  entrantName: string;
 }
 
 export interface StartggStanding {
@@ -162,6 +171,10 @@ const UPCOMING_SETS_QUERY = /* GraphQL */ `
               name
             }
           }
+          phaseGroup {
+            id
+            displayIdentifier
+          }
         }
       }
     }
@@ -192,6 +205,26 @@ const COMPLETED_SETS_QUERY = /* GraphQL */ `
               id
               name
             }
+          }
+          phaseGroup {
+            id
+            displayIdentifier
+          }
+        }
+      }
+    }
+  }
+`;
+
+/** Meilleurs seeds (têtes de série) d'une poule/phaseGroup start.gg. */
+const PHASE_GROUP_SEEDS_QUERY = /* GraphQL */ `
+  query PhaseGroupSeeds($phaseGroupId: ID!, $perPage: Int!) {
+    phaseGroup(id: $phaseGroupId) {
+      seeds(query: { perPage: $perPage, page: 1 }) {
+        nodes {
+          seedNum
+          entrant {
+            name
           }
         }
       }
@@ -300,11 +333,18 @@ function normalizeEntrant(entrant: StartggEntrant | null): StartggEntrant | null
   return { id: String(entrant.id), name: entrant.name };
 }
 
-function normalizeSet(set: StartggSet): StartggSet {
+/** Forme brute d'un set telle que renvoyée par l'API (avant normalisation). */
+interface RawStartggSet extends Omit<StartggSet, "phaseGroupId" | "poolLabel"> {
+  phaseGroup: { id: string | number; displayIdentifier: string | null } | null;
+}
+
+function normalizeSet(set: RawStartggSet): StartggSet {
   return {
     ...set,
     id: String(set.id),
     slots: set.slots.map((slot) => ({ entrant: normalizeEntrant(slot.entrant) })),
+    phaseGroupId: set.phaseGroup ? String(set.phaseGroup.id) : null,
+    poolLabel: set.phaseGroup?.displayIdentifier || null,
   };
 }
 
@@ -315,10 +355,10 @@ function normalizeStanding(standing: StartggStanding): StartggStanding {
 export async function getUpcomingSets(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggSet[]> {
-  const sets = await fetchAllPages<StartggSet>(async (page) => {
+  const sets = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
-        sets: { pageInfo: { totalPages: number }; nodes: StartggSet[] } | null;
+        sets: { pageInfo: { totalPages: number }; nodes: RawStartggSet[] } | null;
       } | null;
     }>(UPCOMING_SETS_QUERY, { eventSlug, page, perPage: PER_PAGE });
 
@@ -331,10 +371,10 @@ export async function getUpcomingSets(
 export async function getCompletedSets(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggSet[]> {
-  const sets = await fetchAllPages<StartggSet>(async (page) => {
+  const sets = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
-        sets: { pageInfo: { totalPages: number }; nodes: StartggSet[] } | null;
+        sets: { pageInfo: { totalPages: number }; nodes: RawStartggSet[] } | null;
       } | null;
     }>(COMPLETED_SETS_QUERY, { eventSlug, page, perPage: PER_PAGE });
 
@@ -367,10 +407,29 @@ export async function getStandings(
 }
 
 export async function getSetResult(setId: string): Promise<StartggSet | null> {
-  const data = await callStartGG<{ set: StartggSet | null }>(SET_RESULT_QUERY, {
+  const data = await callStartGG<{ set: RawStartggSet | null }>(SET_RESULT_QUERY, {
     setId,
   });
   return data.set ? normalizeSet(data.set) : null;
+}
+
+/** Meilleurs seeds (têtes de série) d'une poule, triés du meilleur au moins bon. */
+export async function getPhaseGroupTopSeeds(
+  phaseGroupId: string,
+  limit = 4,
+): Promise<StartggSeed[]> {
+  const data = await callStartGG<{
+    phaseGroup: {
+      seeds: { nodes: { seedNum: number; entrant: { name: string } | null }[] } | null;
+    } | null;
+  }>(PHASE_GROUP_SEEDS_QUERY, { phaseGroupId, perPage: Math.max(limit, 8) });
+
+  const nodes = data.phaseGroup?.seeds?.nodes ?? [];
+  return nodes
+    .filter((n): n is { seedNum: number; entrant: { name: string } } => n.entrant !== null)
+    .sort((a, b) => a.seedNum - b.seedNum)
+    .slice(0, limit)
+    .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name }));
 }
 
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */
