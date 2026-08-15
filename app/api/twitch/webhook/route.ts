@@ -1,22 +1,48 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { verifyWebhookSignature } from "@/lib/twitch";
+import { sendChatMessage, verifyWebhookSignature } from "@/lib/twitch";
+import { SITE_URL } from "@/config/tournament";
 import {
+  getCompletedSets,
+  getEventInfo,
   getSetResult,
   getStandings,
   getUpcomingSets,
+  isMvcLocked,
   SET_STATE,
   type StartggEntrant,
   type StartggSet,
 } from "@/lib/startgg";
+import {
+  isMvcCommand,
+  isResetCommand,
+  matchCharacterName,
+  parseMvcCommand,
+  parseResetCommand,
+} from "@/lib/chatBets";
 
 interface ChatMessageEvent {
+  broadcaster_user_id: string;
   broadcaster_user_login: string;
   chatter_user_id: string;
   chatter_user_login: string;
   chatter_user_name: string;
   message: { text: string };
+}
+
+/** Envoie une réponse dans le chat, sans jamais faire échouer le webhook. */
+async function reply(broadcasterId: string, message: string) {
+  try {
+    await sendChatMessage({ broadcasterId, message });
+  } catch {
+    // best-effort : un message de confirmation qui échoue à partir ne doit
+    // pas empêcher le pari lui-même d'avoir été enregistré.
+  }
+}
+
+function accountLinkHint(): string {
+  return SITE_URL ? ` : ${SITE_URL}/account` : " (page Compte du site)";
 }
 
 const BET_COMMANDS = ["!bet", "!pari"];
@@ -201,6 +227,133 @@ async function handleTop8Command(
   });
 }
 
+/**
+ * !bet mvc <personnage> <0-8> — pari "Le Pari du Parry", nécessite un
+ * compte lié à Twitch (contrairement au pari classique et au top 8, qui
+ * créent un compte allégé à la volée) : les points de ce pari doivent
+ * revenir à un vrai compte du site, pas à une identité jetable.
+ */
+async function handleMvcChatCommand(
+  target: string,
+  tournament: { eventSlug: string; name: string; topEightLocked: boolean },
+  chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
+) {
+  const parsed = parseMvcCommand(target);
+  if (!parsed) {
+    await reply(broadcasterId, `@${chatter.displayName} syntaxe : !bet mvc <personnage> <0-8>`);
+    return;
+  }
+
+  const bettor = await prisma.user.findUnique({ where: { twitchId: chatter.id } });
+  if (!bettor) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} lie d'abord ton compte Twitch sur le site pour parier en chat${accountLinkHint()}.`,
+    );
+    return;
+  }
+
+  let videogameName: string | null = null;
+  try {
+    const eventInfo = await getEventInfo(tournament.eventSlug);
+    videogameName = eventInfo?.videogameName ?? null;
+  } catch {
+    videogameName = null;
+  }
+  if (!videogameName) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} paris MVC indisponibles pour ${tournament.name} (jeu inconnu).`,
+    );
+    return;
+  }
+
+  const characters = await prisma.character.findMany({ where: { game: videogameName } });
+  const { match, suggestions } = matchCharacterName(parsed.characterQuery, characters);
+  if (!match) {
+    const hint = suggestions.length ? ` Tu voulais peut-être : ${suggestions.join(", ")} ?` : "";
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} personnage "${parsed.characterQuery}" introuvable.${hint}`,
+    );
+    return;
+  }
+
+  let locked = tournament.topEightLocked;
+  try {
+    const [upcoming, completed] = await Promise.all([
+      getUpcomingSets(tournament.eventSlug),
+      getCompletedSets(tournament.eventSlug),
+    ]);
+    locked = isMvcLocked([...upcoming, ...completed], tournament.topEightLocked);
+  } catch {
+    locked = tournament.topEightLocked;
+  }
+  if (locked) {
+    await reply(broadcasterId, `@${chatter.displayName} les paris MVC sont fermés pour ${tournament.name}.`);
+    return;
+  }
+
+  await prisma.mvcBet.upsert({
+    where: { userId_eventSlug: { userId: bettor.id, eventSlug: tournament.eventSlug } },
+    update: { characterId: match.id, predictedCount: parsed.count },
+    create: {
+      userId: bettor.id,
+      eventSlug: tournament.eventSlug,
+      characterId: match.id,
+      predictedCount: parsed.count,
+    },
+  });
+
+  await reply(
+    broadcasterId,
+    `@${chatter.displayName} a parié ${match.name} x${parsed.count} sur le MVC de ${tournament.name} !`,
+  );
+}
+
+/** !bet reset oui|non|yes|no — même règle de compte lié que le MVC. */
+async function handleResetChatCommand(
+  target: string,
+  tournament: { eventSlug: string; name: string; bracketResetLocked: boolean },
+  chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
+) {
+  const predictedYes = parseResetCommand(target);
+  if (predictedYes === null) {
+    await reply(broadcasterId, `@${chatter.displayName} syntaxe : !bet reset oui|non`);
+    return;
+  }
+
+  const bettor = await prisma.user.findUnique({ where: { twitchId: chatter.id } });
+  if (!bettor) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} lie d'abord ton compte Twitch sur le site pour parier en chat${accountLinkHint()}.`,
+    );
+    return;
+  }
+
+  if (tournament.bracketResetLocked) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} le pari reset de bracket est fermé pour ${tournament.name}.`,
+    );
+    return;
+  }
+
+  await prisma.bracketResetBet.upsert({
+    where: { userId_eventSlug: { userId: bettor.id, eventSlug: tournament.eventSlug } },
+    update: { predictedYes },
+    create: { userId: bettor.id, eventSlug: tournament.eventSlug, predictedYes },
+  });
+
+  await reply(
+    broadcasterId,
+    `@${chatter.displayName} a parié ${predictedYes ? "Oui" : "Non"} sur le reset de bracket de ${tournament.name} !`,
+  );
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const messageType = request.headers.get("Twitch-Eventsub-Message-Type");
@@ -244,6 +397,7 @@ export async function POST(request: Request) {
 
   const event = body.event as ChatMessageEvent;
   const text = event.message.text;
+  const broadcasterId = event.broadcaster_user_id;
 
   const betTarget = extractCommandTarget(text, BET_COMMANDS);
   const top8Target = betTarget === null ? extractCommandTarget(text, TOP8_COMMANDS) : null;
@@ -252,10 +406,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Sous-commandes "Le Pari du Parry" : contrairement au pari classique et
+  // au top 8 (qui restent silencieux en cas d'échec — comportement existant
+  // inchangé), elles répondent explicitement dans le chat pour chaque cas.
+  const isParrySubCommand =
+    betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget));
+
   const tournament = await prisma.tournament.findFirst({
     where: { twitchChannel: event.broadcaster_user_login },
   });
   if (!tournament) {
+    if (isParrySubCommand) {
+      await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -265,7 +428,11 @@ export async function POST(request: Request) {
     displayName: event.chatter_user_name,
   };
 
-  if (betTarget !== null) {
+  if (betTarget !== null && isMvcCommand(betTarget)) {
+    await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);
+  } else if (betTarget !== null && isResetCommand(betTarget)) {
+    await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
+  } else if (betTarget !== null) {
     await handleBetCommand(betTarget, tournament, chatter);
   } else if (top8Target !== null) {
     await handleTop8Command(top8Target, tournament, chatter);

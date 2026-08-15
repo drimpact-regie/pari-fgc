@@ -155,6 +155,56 @@ export async function exchangeBotAuthCode(code: string, redirectUri: string): Pr
   });
 }
 
+/**
+ * Échange un code d'autorisation OAuth contre l'identité Twitch de
+ * l'utilisateur qui vient d'autoriser l'appli — sert à lier un compte
+ * Impact'O Bet à son compte Twitch (pari via chat), sans persister de
+ * jeton (contrairement au compte bot, on n'a pas besoin de rappeler l'API
+ * en tant que cet utilisateur par la suite).
+ */
+export async function exchangeUserAuthCode(
+  code: string,
+  redirectUri: string,
+): Promise<TwitchUser> {
+  const clientId = requireEnv("TWITCH_CLIENT_ID");
+  const clientSecret = requireEnv("TWITCH_CLIENT_SECRET");
+
+  const res = await fetch(`${TWITCH_OAUTH_URL}/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: redirectUri,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new TwitchApiError(`Échange du code d'autorisation Twitch échoué (${res.status}).`, text);
+  }
+
+  const json = (await res.json()) as { access_token: string };
+
+  const usersRes = await fetch(`${TWITCH_API_URL}/users`, {
+    headers: { "Client-Id": clientId, Authorization: `Bearer ${json.access_token}` },
+  });
+  if (!usersRes.ok) {
+    throw new TwitchApiError(`Impossible de récupérer le compte Twitch (${usersRes.status}).`);
+  }
+  const usersJson = (await usersRes.json()) as {
+    data: { id: string; login: string; display_name: string }[];
+  };
+  const user = usersJson.data[0];
+  if (!user) {
+    throw new TwitchApiError("Aucun compte Twitch renvoyé après autorisation.");
+  }
+
+  return { id: user.id, login: user.login, displayName: user.display_name };
+}
+
 /** Renvoie un jeton bot valide, en le rafraîchissant en base si besoin. */
 export async function getValidBotToken(): Promise<BotToken | null> {
   const stored = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
@@ -285,6 +335,35 @@ export async function createChatSubscription(params: {
   }
 
   return json.data[0].id as string;
+}
+
+/**
+ * Envoie un message dans le chat d'une chaîne, en tant que compte bot.
+ * Nécessite le scope user:write:chat sur le jeton bot — n'échoue jamais
+ * bruyamment (best-effort) : si le bot n'est pas connecté ou que l'envoi
+ * échoue, on préfère un pari silencieux à une erreur qui casse le webhook.
+ */
+export async function sendChatMessage(params: {
+  broadcasterId: string;
+  message: string;
+}): Promise<void> {
+  const clientId = requireEnv("TWITCH_CLIENT_ID");
+  const bot = await getValidBotToken();
+  if (!bot) return;
+
+  await fetch(`${TWITCH_API_URL}/chat/messages`, {
+    method: "POST",
+    headers: {
+      "Client-Id": clientId,
+      Authorization: `Bearer ${bot.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      broadcaster_id: params.broadcasterId,
+      sender_id: bot.userId,
+      message: params.message,
+    }),
+  }).catch(() => undefined);
 }
 
 export async function deleteSubscription(subscriptionId: string): Promise<void> {

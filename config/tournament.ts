@@ -26,6 +26,13 @@ export const DEFAULT_TOURNAMENT_NAME =
 /** Nombre de places disponibles pour le cercle fermé de parieurs (phase 1). */
 export const MAX_USERS = Number(process.env.MAX_USERS ?? 30);
 
+/**
+ * URL publique du site, utilisée pour construire des liens cliquables dans
+ * les réponses du bot Twitch (ex. lien vers la page de liaison de compte).
+ * Laissé vide en dev — les messages du bot s'adaptent (texte sans lien).
+ */
+export const SITE_URL = process.env.SITE_URL?.trim().replace(/\/+$/, "") || "";
+
 /** Points attribués pour un pari gagnant (paris "Top 8" et anciens paris sans score). */
 export const POINTS_PER_CORRECT_BET = Number(
   process.env.POINTS_PER_CORRECT_BET ?? 1,

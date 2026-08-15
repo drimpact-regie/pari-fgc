@@ -4,12 +4,14 @@ import { auth } from "@/lib/auth";
 
 /**
  * Démarre le flux OAuth Twitch pour le compte "bot" utilisé à lire le chat.
- * Deux scopes nécessaires : user:read:chat (lire les messages) et user:bot
+ * Scopes nécessaires : user:read:chat (lire les messages), user:bot
  * (déclare que ce compte agit comme un bot — sans lui, Twitch refuse la
  * création de l'abonnement channel.chat.message avec "subscription missing
- * proper authorization" même si le compte est modérateur). Le redirect_uri
- * est dérivé de la requête en cours : il doit correspondre EXACTEMENT à une
- * des URL de redirection enregistrées dans la console développeur Twitch.
+ * proper authorization" même si le compte est modérateur), et
+ * user:write:chat (répondre dans le chat, ex. confirmation d'un pari MVC).
+ * Le redirect_uri est dérivé de la requête en cours : il doit correspondre
+ * EXACTEMENT à une des URL de redirection enregistrées dans la console
+ * développeur Twitch.
  */
 export async function GET(request: Request) {
   const session = await auth();
@@ -32,7 +34,7 @@ export async function GET(request: Request) {
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("redirect_uri", redirectUri);
   authorizeUrl.searchParams.set("response_type", "code");
-  authorizeUrl.searchParams.set("scope", "user:read:chat user:bot");
+  authorizeUrl.searchParams.set("scope", "user:read:chat user:bot user:write:chat");
   authorizeUrl.searchParams.set("force_verify", "true");
 
   return NextResponse.redirect(authorizeUrl.toString());

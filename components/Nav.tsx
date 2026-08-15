@@ -23,7 +23,9 @@ export default async function Nav() {
               LeaderBet
             </Link>
             {session.user.isAdmin && <AdminMenu />}
-            <span style={{ color: "var(--muted)" }}>{session.user.name}</span>
+            <Link href="/account" className="hover:opacity-80" style={{ color: "var(--muted)" }}>
+              {session.user.name}
+            </Link>
             <LogoutButton />
           </nav>
         ) : (
