@@ -9,6 +9,35 @@ interface Character {
   imageUrl: string | null;
 }
 
+/** Couleur déterministe (pas d'aléatoire) dérivée du nom, pour l'avatar de repli sans image. */
+function fallbackColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(hash) % 360}, 55%, 32%)`;
+}
+
+function CharacterAvatar({ character, size = 48 }: { character: Character; size?: number }) {
+  if (character.imageUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={character.imageUrl}
+        alt=""
+        className="rounded-md object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-md flex items-center justify-center font-bold text-white"
+      style={{ width: size, height: size, background: fallbackColor(character.name) }}
+    >
+      {character.name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
 export default function MvcBetForm({
   tournamentId,
   characters,
@@ -33,10 +62,10 @@ export default function MvcBetForm({
 
   const alreadyBet = initialCharacter !== null;
 
-  const results = useMemo(() => {
+  const visibleCharacters = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return characters.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 20);
+    if (!q) return characters;
+    return characters.filter((c) => c.name.toLowerCase().includes(q));
   }, [query, characters]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -76,14 +105,7 @@ export default function MvcBetForm({
         <p className="text-sm flex items-center gap-2">
           {alreadyBet ? (
             <>
-              {initialCharacter?.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={initialCharacter.imageUrl}
-                  alt=""
-                  className="w-6 h-6 rounded-sm object-cover"
-                />
-              )}
+              {initialCharacter && <CharacterAvatar character={initialCharacter} size={28} />}
               Pari placé : <span className="font-medium">{initialCharacter?.name}</span> ×{" "}
               {initialPredictedCount}
               {actualCount != null && (
@@ -99,43 +121,57 @@ export default function MvcBetForm({
           Aucun personnage disponible pour ce jeu pour le moment — contacte un admin.
         </p>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-          <div className="relative">
-            <input
-              className="input"
-              value={selected ? selected.name : query}
-              onChange={(e) => {
-                setSelected(null);
-                setQuery(e.target.value);
-              }}
-              placeholder="Rechercher un personnage..."
-              required
-            />
-            {results.length > 0 && !selected && (
-              <div
-                className="absolute z-10 mt-1 w-full rounded-md overflow-hidden max-h-60 overflow-y-auto"
-                style={{ background: "var(--surface-alt)", border: "1px solid var(--border)" }}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          {selected ? (
+            <div
+              className="flex items-center gap-3 p-2 rounded-md"
+              style={{ background: "var(--surface-alt)" }}
+            >
+              <CharacterAvatar character={selected} size={40} />
+              <span className="text-sm font-medium flex-1">{selected.name}</span>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="text-xs"
+                style={{ color: "var(--lose)" }}
               >
-                {results.map((c) => (
+                Changer
+              </button>
+            </div>
+          ) : (
+            <>
+              {characters.length > 8 && (
+                <input
+                  className="input"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Filtrer les personnages..."
+                />
+              )}
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))" }}
+              >
+                {visibleCharacters.map((c) => (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => {
-                      setSelected(c);
-                      setQuery("");
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:opacity-80 flex items-center gap-2"
+                    onClick={() => setSelected(c)}
+                    className="flex flex-col items-center gap-1 p-2 rounded-md hover:opacity-80 text-center"
+                    style={{ background: "var(--surface-alt)" }}
                   >
-                    {c.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.imageUrl} alt="" className="w-5 h-5 rounded-sm object-cover" />
-                    )}
-                    {c.name}
+                    <CharacterAvatar character={c} />
+                    <span className="text-xs leading-tight">{c.name}</span>
                   </button>
                 ))}
+                {visibleCharacters.length === 0 && (
+                  <p className="text-sm col-span-full" style={{ color: "var(--muted)" }}>
+                    Aucun personnage ne correspond.
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
 
           <div className="flex items-center gap-2">
             <label className="text-sm">
