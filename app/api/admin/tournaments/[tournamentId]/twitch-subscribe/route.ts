@@ -68,6 +68,7 @@ export async function POST(
     const subscriptionId = await createChatSubscription({
       broadcasterUserId: broadcaster.id,
       botUserId: bot.userId,
+      botAccessToken: bot.accessToken,
       callbackUrl,
       secret,
     });
