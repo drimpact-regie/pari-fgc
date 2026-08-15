@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pari FGC",
+  title: "Impact'O Bet",
   description: "Paris entre amis sur les brackets start.gg",
 };
 

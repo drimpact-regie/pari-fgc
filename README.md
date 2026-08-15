@@ -1,11 +1,13 @@
-# Pari FGC
+# Impact'O Bet
 
 Application de paris amicaux entre un cercle fermé de parieurs sur les
-matchs d'un event start.gg (tournois de jeux de combat). Permet de :
+matchs de tournois start.gg (jeux de combat). Chaque tournoi suivi est un
+onglet indépendant, avec son propre historique. Permet de :
 
-- parier sur les matchs à venir d'un event start.gg ;
-- consulter les stats / le classement des joueurs de l'event ;
-- consulter un classement des parieurs (points gagnés).
+- parier sur les matchs à venir d'un tournoi ;
+- consulter les stats / le classement des joueurs du tournoi ;
+- consulter un classement des parieurs (points gagnés), par tournoi ;
+- ajouter de nouveaux tournois à suivre directement depuis l'app (admin).
 
 ## Stack
 
@@ -23,21 +25,22 @@ La logique des requêtes GraphQL (`lib/startgg.ts`) reprend celle du fichier
 `Req_MatchsAVenir`, `Req_StatsJoueurs`), portée en TypeScript avec des
 requêtes paramétrées.
 
-## Changer de tournoi
+## Gérer les tournois
 
-**Ne jamais coder le slug d'un tournoi en dur dans le code.** Le tournoi
-suivi est entièrement piloté par la variable d'environnement
-`STARTGG_EVENT_SLUG` (voir `config/tournament.ts`), qui correspond à la
-partie d'URL après `https://www.start.gg/` :
+**Ne jamais coder un slug de tournoi en dur dans le code.** Les tournois
+suivis sont stockés en base (table `Tournament`) et gérés depuis l'app,
+sans redéploiement :
 
-```
-STARTGG_EVENT_SLUG=tournament/ceo-2026/event/marvel-tokon-fighting-souls
-```
+- Un compte admin va sur **`/admin/tournaments`**, colle le nom et le lien
+  (ou slug) start.gg du nouveau tournoi (ex :
+  `https://www.start.gg/tournament/ceo-2026/event/marvel-tokon-fighting-souls`),
+  et il apparaît immédiatement comme nouvel onglet.
+- Chaque tournoi garde son propre historique (matchs, paris, classements) —
+  en ajouter un nouveau n'efface rien des précédents.
 
-Pour passer à un nouveau tournoi, il suffit de changer cette variable
-d'environnement (fichier `.env.local` en dev, variable d'environnement de
-la plateforme d'hébergement en production) et de redémarrer l'app — aucun
-changement de code n'est nécessaire.
+`STARTGG_EVENT_SLUG` / `DEFAULT_TOURNAMENT_NAME` (voir `config/tournament.ts`)
+ne servent qu'à amorcer le tout premier tournoi au premier démarrage, quand
+la table `Tournament` est encore vide.
 
 ## Configuration
 
@@ -88,18 +91,20 @@ Le premier compte créé via `/register` devient automatiquement admin
 
 ## Fonctionnement
 
-- **`/matches`** : liste les sets à venir ou en cours de l'event
-  (`sets(filters: { state: [1, 2] })`, comme `Req_MatchsAVenir`). Parier
-  n'est possible que tant que le match n'a pas commencé (état 1).
-- **`/players`** : classement (`standings`, comme `Req_StatsJoueurs`) et
-  palmarès victoires/défaites calculé à partir des sets terminés.
-- **`/leaderboard`** : classement des parieurs par points, agrégé depuis
-  la table `Bet`.
+- **`/t/[tournamentId]/matches`** : liste les sets à venir ou en cours du
+  tournoi (`sets(filters: { state: [1, 2] })`, comme `Req_MatchsAVenir`),
+  regroupés par étape (round) et repliables. Parier n'est possible que
+  tant que le match n'a pas commencé (état 1).
+- **`/t/[tournamentId]/players`** : classement (`standings`, comme
+  `Req_StatsJoueurs`) et palmarès victoires/défaites du tournoi.
+- **`/t/[tournamentId]/leaderboard`** : classement des parieurs par points
+  sur ce tournoi, agrégé depuis la table `Bet`.
+- **`/admin/tournaments`** : liste et ajout de tournois (admin uniquement).
 - **`POST /api/admin/sync-results`** : à appeler régulièrement (bouton
   admin à ajouter dans l'UI, ou cron externe avec le header
   `x-admin-secret: <ADMIN_SYNC_SECRET>`) pour résoudre les paris en
-  attente en interrogeant l'état réel des matchs sur start.gg et attribuer
-  les points.
+  attente (tous tournois confondus) en interrogeant l'état réel des
+  matchs sur start.gg et attribuer les points.
 
 ## Authentification — phase 1 (cercle de 30 personnes)
 

@@ -1,10 +1,11 @@
 /**
- * Configuration du tournoi start.gg suivi par l'application.
+ * Configuration liée aux tournois start.gg suivis par l'application.
  *
- * Le tournoi change régulièrement : ne JAMAIS coder son slug en dur ailleurs
- * dans le code. Modifier la variable d'environnement STARTGG_EVENT_SLUG
- * (fichier .env / .env.local, ou variables d'env de la plateforme de
- * déploiement) pour pointer vers un nouvel event.
+ * Les tournois sont gérés dynamiquement en base (table Tournament, ajoutés
+ * depuis /admin/tournaments) — ne JAMAIS coder un slug de tournoi en dur
+ * ailleurs dans le code. Les constantes ci-dessous ne servent qu'à amorcer
+ * le tout premier tournoi au premier démarrage de l'app (voir
+ * lib/tournaments.ts), quand la table Tournament est encore vide.
  *
  * Le slug d'event start.gg correspond à la partie d'URL après
  * "https://www.start.gg/" — par exemple pour
@@ -17,6 +18,10 @@ const DEFAULT_EVENT_SLUG =
 
 export const STARTGG_EVENT_SLUG =
   process.env.STARTGG_EVENT_SLUG?.trim() || DEFAULT_EVENT_SLUG;
+
+/** Nom d'affichage du tournoi amorcé au premier démarrage. */
+export const DEFAULT_TOURNAMENT_NAME =
+  process.env.DEFAULT_TOURNAMENT_NAME?.trim() || "CEO 2026";
 
 /** Nombre de places disponibles pour le cercle fermé de parieurs (phase 1). */
 export const MAX_USERS = Number(process.env.MAX_USERS ?? 30);

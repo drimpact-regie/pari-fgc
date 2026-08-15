@@ -9,6 +9,7 @@ interface Entrant {
 }
 
 interface Props {
+  tournamentId: string;
   setId: string;
   entrants: Entrant[];
   locked: boolean;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function BetCard({
+  tournamentId,
   setId,
   entrants,
   locked,
@@ -37,7 +39,7 @@ export default function BetCard({
     const res = await fetch("/api/bets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ setId, entrantId: selected }),
+      body: JSON.stringify({ tournamentId, setId, entrantId: selected }),
     });
 
     setSubmitting(false);

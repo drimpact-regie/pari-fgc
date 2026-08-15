@@ -18,6 +18,20 @@ enum BetStatus {
   LOST
 }
 
+/**
+ * Un tournoi = un event start.gg suivi, affiché comme onglet dans l'app.
+ * Les paris (Bet) sont rattachés par eventSlug, pas par une clé étrangère :
+ * l'historique d'un tournoi reste consultable même si son slug change de
+ * nom d'affichage, et rien n'empêche deux tournois différents d'avoir
+ * existé sur le même slug au fil du temps.
+ */
+model Tournament {
+  id        String   @id @default(cuid())
+  name      String
+  eventSlug String   @unique
+  createdAt DateTime @default(now())
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique

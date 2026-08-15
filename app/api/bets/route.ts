@@ -3,10 +3,11 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { STARTGG_EVENT_SLUG } from "@/config/tournament";
+import { getTournament } from "@/lib/tournaments";
 import { getSetResult, SET_STATE, StartggApiError } from "@/lib/startgg";
 
 const betSchema = z.object({
+  tournamentId: z.string().min(1),
   setId: z.string().min(1),
   entrantId: z.string().min(1),
 });
@@ -40,7 +41,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { setId, entrantId } = parsed.data;
+  const { tournamentId, setId, entrantId } = parsed.data;
+
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) {
+    return NextResponse.json({ error: "Tournoi introuvable." }, { status: 404 });
+  }
 
   let set;
   try {
@@ -77,7 +83,7 @@ export async function POST(request: Request) {
       data: {
         userId: session.user.id,
         setId,
-        eventSlug: STARTGG_EVENT_SLUG,
+        eventSlug: tournament.eventSlug,
         roundText: set.fullRoundText ?? "",
         predictedEntrantId: chosenEntrant.id,
         predictedEntrantName: chosenEntrant.name,
