@@ -8,6 +8,7 @@ import AddTournamentForm from "@/components/AddTournamentForm";
 import TwitchChannelEditor from "@/components/TwitchChannelEditor";
 import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
 import SyncResultsButton from "@/components/SyncResultsButton";
+import DeleteTournamentButton from "@/components/DeleteTournamentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -93,9 +94,12 @@ export default async function AdminTournamentsPage({
                   )}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>
-                    Voir
-                  </Link>
+                  <div className="flex items-center justify-end gap-3">
+                    <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>
+                      Voir
+                    </Link>
+                    <DeleteTournamentButton tournamentId={t.id} tournamentName={t.name} />
+                  </div>
                 </td>
               </tr>
             ))}

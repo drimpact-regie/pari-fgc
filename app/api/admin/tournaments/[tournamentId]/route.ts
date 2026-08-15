@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeTwitchChannel } from "@/lib/normalize";
 import { computeBracketResetPoints } from "@/lib/scoring";
+import { deleteSubscription } from "@/lib/twitch";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1, "Nom requis").max(80, "80 caractères maximum").optional(),
@@ -86,4 +87,43 @@ export async function PATCH(
   }
 
   return NextResponse.json({ tournament });
+}
+
+/**
+ * Supprime un tournoi. Les paris (Bet, MvcBet, TopEightPick,
+ * BracketResetBet) sont rattachés par eventSlug, pas par relation vers
+ * Tournament — ils ne sont donc pas supprimés, seulement rendus
+ * inaccessibles via les pages de ce tournoi tant qu'aucun tournoi ne
+ * réutilise le même eventSlug.
+ */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ tournamentId: string }> },
+) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  }
+
+  const { tournamentId } = await params;
+
+  const existing = await prisma.tournament.findUnique({ where: { id: tournamentId } });
+  if (!existing) {
+    return NextResponse.json({ error: "Tournoi introuvable." }, { status: 404 });
+  }
+
+  // Nettoie l'abonnement EventSub Twitch actif le cas échéant, pour ne pas
+  // laisser un abonnement orphelin côté Twitch — best-effort, ne bloque pas
+  // la suppression si Twitch est indisponible.
+  if (existing.twitchSubscriptionId) {
+    try {
+      await deleteSubscription(existing.twitchSubscriptionId);
+    } catch {
+      // best-effort
+    }
+  }
+
+  await prisma.tournament.delete({ where: { id: tournamentId } });
+
+  return NextResponse.json({ ok: true });
 }
