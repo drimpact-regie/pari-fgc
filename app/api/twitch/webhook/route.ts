@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { verifyWebhookSignature } from "@/lib/twitch";
-import { getSetResult, SET_STATE } from "@/lib/startgg";
+import { getSetResult, getStandings, getUpcomingSets, SET_STATE, type StartggSet } from "@/lib/startgg";
 
 interface ChatMessageEvent {
   broadcaster_user_login: string;
@@ -13,10 +13,11 @@ interface ChatMessageEvent {
 }
 
 const BET_COMMANDS = ["!bet", "!pari"];
+const TOP8_COMMANDS = ["!top8", "!top 8"];
 
-function extractBetTarget(text: string): string | null {
+function extractCommandTarget(text: string, commands: string[]): string | null {
   const trimmed = text.trim();
-  for (const command of BET_COMMANDS) {
+  for (const command of commands) {
     if (trimmed.toLowerCase().startsWith(command)) {
       return trimmed.slice(command.length).trim();
     }
@@ -24,7 +25,7 @@ function extractBetTarget(text: string): string | null {
   return null;
 }
 
-/** Rapproche un nom tapé en chat (souvent imparfait) du bon entrant du set. */
+/** Rapproche un nom tapé en chat (souvent imparfait) du bon entrant. */
 function matchEntrant(
   target: string,
   entrants: { id: string; name: string }[],
@@ -70,6 +71,129 @@ async function ensureChatBettor(chatter: {
   }
 }
 
+function openEntrants(set: StartggSet): { id: string; name: string }[] {
+  return set.slots
+    .map((slot) => slot.entrant)
+    .filter((e): e is { id: string; name: string } => e !== null);
+}
+
+async function placeChatBet(
+  set: StartggSet,
+  chosenEntrant: { id: string; name: string },
+  eventSlug: string,
+  chatter: { id: string; login: string; displayName: string },
+) {
+  const bettor = await ensureChatBettor(chatter);
+
+  await prisma.bet
+    .create({
+      data: {
+        userId: bettor.id,
+        setId: set.id,
+        eventSlug,
+        roundText: set.fullRoundText ?? "",
+        predictedEntrantId: chosenEntrant.id,
+        predictedEntrantName: chosenEntrant.name,
+      },
+    })
+    .catch(() => undefined); // déjà parié sur ce match : on ignore silencieusement
+}
+
+/**
+ * !bet cherche par défaut le joueur parmi TOUS les matchs actuellement
+ * ouverts (pas commencés) du tournoi — on peut parier sur plusieurs matchs
+ * en parallèle depuis le chat, pas juste celui affiché à l'écran. Le match
+ * marqué "actif" par un admin (le cas échéant) est prioritaire pour
+ * désambiguïser si le même nom correspond à plusieurs matchs ouverts.
+ */
+async function handleBetCommand(
+  target: string,
+  tournament: { eventSlug: string; activeChatSetId: string | null },
+  chatter: { id: string; login: string; displayName: string },
+) {
+  if (tournament.activeChatSetId) {
+    let activeSet: StartggSet | null = null;
+    try {
+      activeSet = await getSetResult(tournament.activeChatSetId);
+    } catch {
+      activeSet = null;
+    }
+    if (activeSet && activeSet.state === SET_STATE.NOT_STARTED) {
+      const chosen = matchEntrant(target, openEntrants(activeSet));
+      if (chosen) {
+        await placeChatBet(activeSet, chosen, tournament.eventSlug, chatter);
+        return;
+      }
+    }
+  }
+
+  let allSets: StartggSet[];
+  try {
+    allSets = await getUpcomingSets(tournament.eventSlug);
+  } catch {
+    return;
+  }
+
+  const candidates = allSets
+    .filter((set) => set.state === SET_STATE.NOT_STARTED)
+    .map((set) => {
+      const chosen = matchEntrant(target, openEntrants(set));
+      return chosen ? { set, chosen } : null;
+    })
+    .filter((c): c is { set: StartggSet; chosen: { id: string; name: string } } => c !== null);
+
+  // Le nom doit désigner un joueur dans exactement un match ouvert, sinon
+  // c'est ambigu (ou introuvable) et on ignore silencieusement.
+  if (candidates.length !== 1) return;
+
+  await placeChatBet(candidates[0].set, candidates[0].chosen, tournament.eventSlug, chatter);
+}
+
+async function handleTop8Command(
+  target: string,
+  tournament: { id: string; eventSlug: string; topEightLocked: boolean },
+  chatter: { id: string; login: string; displayName: string },
+) {
+  if (tournament.topEightLocked) return;
+
+  const names = target
+    .split(",")
+    .map((n) => n.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (names.length === 0) return;
+
+  let standings;
+  try {
+    standings = await getStandings(tournament.eventSlug);
+  } catch {
+    return;
+  }
+
+  const entrants = standings
+    .filter((s) => s.entrant)
+    .map((s) => ({ id: s.entrant!.id, name: s.entrant!.name }));
+
+  const picks: { entrantId: string; entrantName: string }[] = [];
+  const seenIds = new Set<string>();
+  for (const name of names) {
+    const match = matchEntrant(name, entrants);
+    if (match && !seenIds.has(match.id)) {
+      seenIds.add(match.id);
+      picks.push({ entrantId: match.id, entrantName: match.name });
+    }
+  }
+  if (picks.length === 0) return;
+
+  const bettor = await ensureChatBettor(chatter);
+
+  await prisma.topEightPick.upsert({
+    where: { userId_eventSlug: { userId: bettor.id, eventSlug: tournament.eventSlug } },
+    update: { picks },
+    create: { userId: bettor.id, eventSlug: tournament.eventSlug, picks },
+  });
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const messageType = request.headers.get("Twitch-Eventsub-Message-Type");
@@ -112,55 +236,33 @@ export async function POST(request: Request) {
   }
 
   const event = body.event as ChatMessageEvent;
-  const betTarget = extractBetTarget(event.message.text);
-  if (!betTarget) {
+  const text = event.message.text;
+
+  const betTarget = extractCommandTarget(text, BET_COMMANDS);
+  const top8Target = betTarget === null ? extractCommandTarget(text, TOP8_COMMANDS) : null;
+
+  if (betTarget === null && top8Target === null) {
     return NextResponse.json({ ok: true });
   }
 
   const tournament = await prisma.tournament.findFirst({
     where: { twitchChannel: event.broadcaster_user_login },
   });
-  if (!tournament?.activeChatSetId) {
+  if (!tournament) {
     return NextResponse.json({ ok: true });
   }
 
-  let set;
-  try {
-    set = await getSetResult(tournament.activeChatSetId);
-  } catch {
-    return NextResponse.json({ ok: true });
-  }
-  if (!set || set.state !== SET_STATE.NOT_STARTED) {
-    return NextResponse.json({ ok: true });
-  }
-
-  const entrants = set.slots
-    .map((slot) => slot.entrant)
-    .filter((e): e is { id: string; name: string } => e !== null);
-
-  const chosenEntrant = matchEntrant(betTarget, entrants);
-  if (!chosenEntrant) {
-    return NextResponse.json({ ok: true });
-  }
-
-  const bettor = await ensureChatBettor({
+  const chatter = {
     id: event.chatter_user_id,
     login: event.chatter_user_login,
     displayName: event.chatter_user_name,
-  });
+  };
 
-  await prisma.bet
-    .create({
-      data: {
-        userId: bettor.id,
-        setId: set.id,
-        eventSlug: tournament.eventSlug,
-        roundText: set.fullRoundText ?? "",
-        predictedEntrantId: chosenEntrant.id,
-        predictedEntrantName: chosenEntrant.name,
-      },
-    })
-    .catch(() => undefined); // déjà parié sur ce match : on ignore silencieusement
+  if (betTarget !== null) {
+    await handleBetCommand(betTarget, tournament, chatter);
+  } else if (top8Target !== null) {
+    await handleTop8Command(top8Target, tournament, chatter);
+  }
 
   return NextResponse.json({ ok: true });
 }

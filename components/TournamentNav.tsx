@@ -11,7 +11,8 @@ interface TournamentSummary {
 const SECTIONS = [
   { slug: "matches", label: "Matchs" },
   { slug: "players", label: "Joueurs" },
-  { slug: "leaderboard", label: "Classement" },
+  { slug: "top8", label: "Top 8" },
+  { slug: "leaderboard", label: "LeaderBet" },
 ] as const;
 
 export default function TournamentNav({

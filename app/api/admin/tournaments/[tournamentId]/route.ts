@@ -10,6 +10,7 @@ const updateSchema = z.object({
   twitchChannel: z.string().trim().max(100).optional(),
   // Set start.gg "en direct" pour le pari via chat. Chaîne vide = désactive.
   activeChatSetId: z.string().trim().optional(),
+  topEightLocked: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -46,6 +47,9 @@ export async function PATCH(
         : {}),
       ...(parsed.data.activeChatSetId !== undefined
         ? { activeChatSetId: parsed.data.activeChatSetId || null }
+        : {}),
+      ...(parsed.data.topEightLocked !== undefined
+        ? { topEightLocked: parsed.data.topEightLocked }
         : {}),
     },
   });

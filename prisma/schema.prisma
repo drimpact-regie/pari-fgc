@@ -38,6 +38,10 @@ model Tournament {
   // Set start.gg actuellement "en direct" côté chat Twitch : les commandes
   // !bet du chat parient sur ce match, choisi manuellement par un admin.
   activeChatSetId       String?
+  // Verrouille les pronostics Top 8 (plus aucune modification possible, web
+  // ou chat) — activé manuellement par un admin au moment où le tournoi
+  // entre en phase Top 8.
+  topEightLocked Boolean  @default(false)
   createdAt     DateTime @default(now())
 }
 
@@ -55,6 +59,27 @@ model User {
   isAdmin      Boolean  @default(false)
   createdAt    DateTime @default(now())
   bets         Bet[]
+  topEightPicks TopEightPick[]
+}
+
+/**
+ * Pronostic "Top 8" d'un parieur pour un tournoi donné : les 8 joueurs
+ * qu'il pense voir finir dans le top 8. Une ligne par utilisateur et par
+ * tournoi (comme Bet, rattaché par eventSlug plutôt que par relation vers
+ * Tournament, pour garder l'historique même si le tournoi est renommé).
+ */
+model TopEightPick {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventSlug String
+  // [{ entrantId: string, entrantName: string }, ...] — jusqu'à 8, dans
+  // l'ordre de sélection.
+  picks     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, eventSlug])
 }
 
 /**

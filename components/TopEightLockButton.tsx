@@ -3,14 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function ActiveChatSetButton({
+export default function TopEightLockButton({
   tournamentId,
-  setId,
-  active,
+  locked,
 }: {
   tournamentId: string;
-  setId: string;
-  active: boolean;
+  locked: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -21,7 +19,7 @@ export default function ActiveChatSetButton({
     await fetch(`/api/admin/tournaments/${tournamentId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activeChatSetId: active ? "" : setId }),
+      body: JSON.stringify({ topEightLocked: !locked }),
     });
 
     setLoading(false);
@@ -33,14 +31,14 @@ export default function ActiveChatSetButton({
       type="button"
       onClick={handleClick}
       disabled={loading}
-      className="text-xs px-2 py-1 rounded"
+      className="text-xs px-3 py-1.5 rounded-md self-start"
       style={{
-        background: active ? "var(--accent)" : "var(--surface-alt)",
-        color: active ? "#0b0d12" : "var(--muted)",
+        background: locked ? "var(--lose)" : "var(--surface-alt)",
+        color: locked ? "#fff" : "var(--muted)",
       }}
-      title="Priorité pour !bet en cas de nom ambigu entre plusieurs matchs ouverts (le chat peut déjà parier sur n'importe quel match ouvert par défaut)"
+      title="Verrouille/déverrouille les pronostics Top 8 (web et chat) pour ce tournoi"
     >
-      {active ? "📺 Priorité chat" : "Prioriser pour le chat"}
+      {locked ? "🔒 Top 8 verrouillé (cliquer pour déverrouiller)" : "Verrouiller le Top 8"}
     </button>
   );
 }
