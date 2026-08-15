@@ -54,34 +54,46 @@ export default async function MatchesPage() {
         <p style={{ color: "var(--muted)" }}>Aucun match à venir pour le moment.</p>
       )}
 
-      {Array.from(groupByRound(sets)).map(([roundText, roundSets]) => (
-        <section key={roundText} className="flex flex-col gap-3">
-          <h2
-            className="text-sm font-semibold uppercase tracking-wide pl-3"
-            style={{ borderLeft: "3px solid var(--accent)", color: "var(--foreground)" }}
-          >
-            {roundText}
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {roundSets.map((set) => {
-              const entrants = set.slots
-                .map((slot) => slot.entrant)
-                .filter((entrant): entrant is { id: string; name: string } => entrant !== null);
-              const bet = betBySetId.get(set.id);
+      {Array.from(groupByRound(sets)).map(([roundText, roundSets]) => {
+        const openCount = roundSets.filter(
+          (set) => set.state === SET_STATE.NOT_STARTED,
+        ).length;
 
-              return (
-                <BetCard
-                  key={set.id}
-                  setId={set.id}
-                  entrants={entrants}
-                  locked={set.state !== SET_STATE.NOT_STARTED}
-                  existingBetEntrantName={bet?.predictedEntrantName ?? null}
-                />
-              );
-            })}
-          </div>
-        </section>
-      ))}
+        return (
+          <details key={roundText} className="card group" open={false}>
+            <summary
+              className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none list-none"
+              style={{ borderLeft: "3px solid var(--accent)" }}
+            >
+              <span className="text-sm font-semibold uppercase tracking-wide">
+                {roundText}
+              </span>
+              <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>
+                {roundSets.length} match{roundSets.length > 1 ? "s" : ""}
+                {openCount > 0 ? ` · ${openCount} ouvert${openCount > 1 ? "s" : ""}` : ""}
+              </span>
+            </summary>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 pt-0">
+              {roundSets.map((set) => {
+                const entrants = set.slots
+                  .map((slot) => slot.entrant)
+                  .filter((entrant): entrant is { id: string; name: string } => entrant !== null);
+                const bet = betBySetId.get(set.id);
+
+                return (
+                  <BetCard
+                    key={set.id}
+                    setId={set.id}
+                    entrants={entrants}
+                    locked={set.state !== SET_STATE.NOT_STARTED}
+                    existingBetEntrantName={bet?.predictedEntrantName ?? null}
+                  />
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
     </div>
   );
 }
