@@ -137,6 +137,7 @@ export interface PlayerHistoryEntry {
   placement: number | null;
   eventName: string;
   tournamentName: string;
+  tournamentLogoUrl: string | null;
 }
 
 export interface StartggEventInfo {
@@ -311,6 +312,10 @@ const PLAYER_RECENT_STANDINGS_QUERY = /* GraphQL */ `
             name
             tournament {
               name
+              images {
+                url
+                type
+              }
             }
           }
         }
@@ -524,26 +529,35 @@ export async function getPlayerRecentStandings(
   playerId: string,
   limit = 5,
 ): Promise<PlayerHistoryEntry[]> {
+  interface RawTournament {
+    name: string;
+    images: { url: string; type: string | null }[] | null;
+  }
   const data = await callStartGG<{
     player: {
       recentStandings: {
         placement: number | null;
         entrant: {
-          event: { name: string; tournament: { name: string } | null } | null;
+          event: { name: string; tournament: RawTournament | null } | null;
         } | null;
       }[] | null;
     } | null;
   }>(PLAYER_RECENT_STANDINGS_QUERY, { playerId, limit });
 
   return (data.player?.recentStandings ?? [])
-    .filter((s): s is typeof s & { entrant: { event: { name: string; tournament: { name: string } | null } } } =>
+    .filter((s): s is typeof s & { entrant: { event: { name: string; tournament: RawTournament | null } } } =>
       s.entrant?.event != null,
     )
-    .map((s) => ({
-      placement: s.placement,
-      eventName: s.entrant.event.name,
-      tournamentName: s.entrant.event.tournament?.name ?? "",
-    }));
+    .map((s) => {
+      const images = s.entrant.event.tournament?.images ?? [];
+      const logo = images.find((img) => img.type === "profile") ?? images[0] ?? null;
+      return {
+        placement: s.placement,
+        eventName: s.entrant.event.name,
+        tournamentName: s.entrant.event.tournament?.name ?? "",
+        tournamentLogoUrl: logo?.url ?? null,
+      };
+    });
 }
 
 export async function getSetResult(setId: string): Promise<StartggSet | null> {

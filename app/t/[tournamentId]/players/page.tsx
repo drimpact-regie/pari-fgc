@@ -101,9 +101,23 @@ export default async function PlayersPage({
                       {history.length === 0 ? (
                         <span style={{ color: "var(--muted)" }}>—</span>
                       ) : (
-                        <ul className="flex flex-col gap-0.5">
+                        <ul className="flex flex-col gap-1">
                           {history.map((h, i) => (
-                            <li key={i} className="text-xs" style={{ color: "var(--muted)" }}>
+                            <li
+                              key={i}
+                              className="text-xs flex items-center gap-1.5"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {h.tournamentLogoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={h.tournamentLogoUrl}
+                                  alt=""
+                                  className="w-4 h-4 rounded-sm object-cover shrink-0"
+                                />
+                              ) : (
+                                <span className="w-4 h-4 shrink-0" />
+                              )}
                               <span style={{ color: "var(--foreground)" }}>
                                 {h.tournamentName || h.eventName}
                               </span>
