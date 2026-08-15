@@ -1,0 +1,46 @@
+import Link from "next/link";
+
+import { auth } from "@/lib/auth";
+import LogoutButton from "@/components/LogoutButton";
+
+export default async function Nav() {
+  const session = await auth();
+
+  return (
+    <header
+      className="border-b"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    >
+      <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+        <Link href="/" className="font-semibold tracking-tight">
+          🎮 Pari FGC
+        </Link>
+
+        {session?.user ? (
+          <nav className="flex items-center gap-4 text-sm">
+            <Link href="/matches" className="hover:opacity-80">
+              Matchs
+            </Link>
+            <Link href="/players" className="hover:opacity-80">
+              Joueurs
+            </Link>
+            <Link href="/leaderboard" className="hover:opacity-80">
+              Classement
+            </Link>
+            <span style={{ color: "var(--muted)" }}>{session.user.name}</span>
+            <LogoutButton />
+          </nav>
+        ) : (
+          <nav className="flex items-center gap-4 text-sm">
+            <Link href="/login" className="hover:opacity-80">
+              Connexion
+            </Link>
+            <Link href="/register" className="hover:opacity-80">
+              Inscription
+            </Link>
+          </nav>
+        )}
+      </div>
+    </header>
+  );
+}

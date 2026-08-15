@@ -1,0 +1,52 @@
+// Schéma Prisma — cercle de parieurs (phase 1 : ~30 comptes, SQLite).
+// Pour étendre au-delà de 30 personnes, passer DATABASE_URL sur Postgres
+// (provider = "postgresql") ; le schéma reste valable tel quel.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String?
+  // Champs prêts pour la phase 2 (connexion via un connecteur externe :
+  // start.gg ou Discord) sans avoir à retoucher le modèle de données.
+  discordId    String?  @unique
+  startggId    String?  @unique
+  isAdmin      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  bets         Bet[]
+}
+
+model Bet {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Identifiant du "set" (match) côté start.gg.
+  setId                 String
+  eventSlug             String
+  // Snapshot des infos du match au moment du pari, pour affichage même si
+  // l'API start.gg change ou devient indisponible par la suite.
+  roundText             String
+  predictedEntrantId    String
+  predictedEntrantName  String
+  status                BetStatus @default(PENDING)
+  pointsAwarded         Int       @default(0)
+  createdAt             DateTime  @default(now())
+  resolvedAt            DateTime?
+
+  @@unique([userId, setId])
+  @@index([setId])
+}
