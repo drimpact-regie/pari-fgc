@@ -10,7 +10,6 @@ interface Entrant {
 
 interface Props {
   setId: string;
-  roundText: string;
   entrants: Entrant[];
   locked: boolean;
   existingBetEntrantName: string | null;
@@ -18,7 +17,6 @@ interface Props {
 
 export default function BetCard({
   setId,
-  roundText,
   entrants,
   locked,
   existingBetEntrantName,
@@ -55,19 +53,20 @@ export default function BetCard({
 
   return (
     <div className="card p-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{roundText}</span>
-        {alreadyBet && (
-          <span className="text-xs" style={{ color: "var(--accent)" }}>
-            Pari placé : {existingBetEntrantName}
-          </span>
-        )}
-        {locked && !alreadyBet && (
-          <span className="text-xs" style={{ color: "var(--muted)" }}>
-            Paris fermés
-          </span>
-        )}
-      </div>
+      {(alreadyBet || (locked && !alreadyBet)) && (
+        <div className="flex items-center justify-end">
+          {alreadyBet && (
+            <span className="text-xs" style={{ color: "var(--accent)" }}>
+              Pari placé : {existingBetEntrantName}
+            </span>
+          )}
+          {locked && !alreadyBet && (
+            <span className="text-xs" style={{ color: "var(--muted)" }}>
+              Paris fermés
+            </span>
+          )}
+        </div>
+      )}
 
       {entrants.length !== 2 ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>
