@@ -50,7 +50,24 @@ model Tournament {
   // après le tournoi (auto-détecté quand possible via un set "Grand Final
   // Reset" côté start.gg, mais reste modifiable manuellement).
   bracketResetActual Boolean?
+  // Dernier passage de détection des résultats de phases finales (annonce
+  // chat + résolution des paris classiques), déclenché à l'occasion des
+  // messages du chat Twitch — sert de garde-fou pour éviter d'interroger
+  // start.gg à chaque message (voir lib/matchResults.ts).
+  lastResultsCheckAt DateTime?
   createdAt     DateTime @default(now())
+}
+
+/**
+ * Marque un set de phase finale tardive (Top N, Grand Final...) dont le
+ * résultat a déjà été annoncé dans le chat Twitch, pour ne pas le
+ * réannoncer aux passages de détection suivants (voir lib/matchResults.ts).
+ */
+model AnnouncedSetResult {
+  id        String   @id @default(cuid())
+  setId     String   @unique
+  eventSlug String
+  createdAt DateTime @default(now())
 }
 
 model User {

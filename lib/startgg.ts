@@ -688,6 +688,33 @@ export function isMvcLocked(allSets: StartggSet[], topEightLocked: boolean): boo
   );
 }
 
+/**
+ * Vrai si ce round fait partie des phases finales tardives du bracket : un
+ * "Top N" (N <= cutoff) ou la grande finale (et son éventuel reset). Même
+ * convention que isMvcLocked/detectBracketReset ci-dessus — généralisée sur
+ * le libellé de round que start.gg génère lui-même selon la progression du
+ * bracket plutôt que sur un nom de round en dur, donc valable quelle que
+ * soit la taille de l'event (Top 32, Top 24 ou Top 16 qui mènent au Top 8).
+ */
+export function isLateBracketRound(fullRoundText: string, cutoff = 24): boolean {
+  const text = fullRoundText.trim();
+  if (/grand final/i.test(text)) return true;
+  const match = /^top (\d+)$/i.exec(text);
+  return match !== null && Number(match[1]) <= cutoff;
+}
+
+/**
+ * Vrai si ce set est réellement ouvert au pari : pas encore commencé ET les
+ * deux entrants sont connus (sinon on attend encore le résultat d'un match
+ * précédent pour savoir qui y jouera).
+ */
+export function isSetOpenForBetting(set: StartggSet): boolean {
+  return (
+    set.state === SET_STATE.NOT_STARTED &&
+    set.slots.filter((slot) => slot.entrant !== null).length === 2
+  );
+}
+
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */
 export interface PlayerRecord {
   entrant: StartggEntrant;

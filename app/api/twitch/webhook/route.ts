@@ -25,6 +25,7 @@ import {
   parseResetCommand,
   parseTop8Target,
 } from "@/lib/chatBets";
+import { detectNewLateBracketResults, formatMatchResultMessage } from "@/lib/matchResults";
 
 interface ChatMessageEvent {
   broadcaster_user_id: string;
@@ -372,6 +373,42 @@ async function handleResetChatCommand(
   );
 }
 
+const RESULTS_CHECK_COOLDOWN_MS = 30_000;
+
+/**
+ * À l'occasion d'un message de chat (peu importe lequel), vérifie si des
+ * matchs de phases finales tardives viennent de se terminer et annonce leur
+ * résultat — best-effort, protégé par un cooldown en base pour ne pas
+ * interroger start.gg à chaque message de chat. Ce point de détection est
+ * partagé avec la synchronisation admin (voir /api/admin/sync-results et
+ * lib/matchResults.ts) plutôt que dupliqué.
+ */
+async function checkAndAnnounceResults(
+  tournament: { id: string; eventSlug: string; lastResultsCheckAt: Date | null },
+  broadcasterId: string,
+) {
+  const now = new Date();
+  if (
+    tournament.lastResultsCheckAt &&
+    now.getTime() - tournament.lastResultsCheckAt.getTime() < RESULTS_CHECK_COOLDOWN_MS
+  ) {
+    return;
+  }
+
+  // Mise à jour optimiste avant le travail lourd, pour limiter les doublons
+  // si deux messages de chat arrivent presque en même temps.
+  await prisma.tournament.update({
+    where: { id: tournament.id },
+    data: { lastResultsCheckAt: now },
+  });
+
+  const completedSets = await getCompletedSets(tournament.eventSlug);
+  const results = await detectNewLateBracketResults(tournament, completedSets);
+  if (results.length === 0) return;
+
+  await reply(broadcasterId, formatMatchResultMessage(results));
+}
+
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const messageType = request.headers.get("Twitch-Eventsub-Message-Type");
@@ -417,6 +454,16 @@ export async function POST(request: Request) {
   const text = event.message.text;
   const broadcasterId = event.broadcaster_user_id;
 
+  // Recherché une seule fois par message, qu'il s'agisse ou non d'une
+  // commande de pari : sert aussi de déclencheur opportuniste pour la
+  // détection de résultats de phases finales tardives ci-dessous.
+  const tournament = await prisma.tournament.findFirst({
+    where: { twitchChannel: event.broadcaster_user_login },
+  });
+  if (tournament) {
+    await checkAndAnnounceResults(tournament, broadcasterId).catch(() => undefined);
+  }
+
   const betTarget = extractCommandTarget(text, BET_COMMANDS);
   const top8Target = betTarget === null ? extractCommandTarget(text, TOP8_COMMANDS) : null;
 
@@ -438,9 +485,6 @@ export async function POST(request: Request) {
     isTop8Invocation ||
     (betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget)));
 
-  const tournament = await prisma.tournament.findFirst({
-    where: { twitchChannel: event.broadcaster_user_login },
-  });
   if (!tournament) {
     if (isParrySubCommand) {
       await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");

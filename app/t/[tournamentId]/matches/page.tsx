@@ -7,6 +7,8 @@ import {
   getEventPhases,
   getPhaseGroupTopSeeds,
   getUpcomingSets,
+  isLateBracketRound,
+  isSetOpenForBetting,
   SET_STATE,
   StartggApiError,
   type StartggEntrant,
@@ -16,6 +18,7 @@ import {
 } from "@/lib/startgg";
 import BetCard from "@/components/BetCard";
 import ActiveChatSetButton from "@/components/ActiveChatSetButton";
+import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatchesSidebar";
 
 interface RoundGroup {
   label: string;
@@ -101,6 +104,22 @@ export default async function MatchesPage({
 
   const phaseSections = buildPhaseSections(phases, sets);
 
+  // Sidebar "matchs ouverts" : aperçu des matchs classiques réellement
+  // pariables (state NOT_STARTED, deux entrants connus) dans les phases
+  // finales tardives (Top N tardif, grande finale), tous rounds confondus,
+  // sans avoir à déplier round par round dans la liste principale.
+  const openMatchEntries: OpenMatchEntry[] = sets
+    .filter((set) => isLateBracketRound(set.fullRoundText) && isSetOpenForBetting(set))
+    .map((set) => ({
+      set,
+      entrants: set.slots
+        .filter(
+          (slot): slot is typeof slot & { entrant: StartggEntrant } => slot.entrant !== null,
+        )
+        .map((slot) => ({ id: slot.entrant.id, name: slot.entrant.name, seedNum: slot.seedNum })),
+      bet: betBySetId.get(set.id),
+    }));
+
   // Têtes de série affichées uniquement pour les poules identifiées — pas
   // pour chaque round d'un bracket classique, où ce serait redondant.
   const poolGroups = phaseSections
@@ -122,7 +141,10 @@ export default async function MatchesPage({
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex gap-4 items-start">
+      <OpenMatchesSidebar tournamentId={tournamentId} entries={openMatchEntries} />
+
+      <div className="flex-1 min-w-0 flex flex-col gap-4">
       {error && (
         <div className="card p-4" style={{ color: "var(--lose)" }}>
           Impossible de récupérer les matchs depuis start.gg : {error}
@@ -217,7 +239,7 @@ export default async function MatchesPage({
                         const bet = betBySetId.get(set.id);
 
                         return (
-                          <div key={set.id} className="flex flex-col gap-1">
+                          <div id={`set-${set.id}`} key={set.id} className="flex flex-col gap-1 scroll-mt-4">
                             {session.user.isAdmin &&
                               tournament.twitchChannel &&
                               set.state === SET_STATE.NOT_STARTED && (
@@ -250,6 +272,7 @@ export default async function MatchesPage({
           </details>
         );
       })}
+      </div>
     </div>
   );
 }
