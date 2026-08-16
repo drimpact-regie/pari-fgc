@@ -14,9 +14,10 @@ import { resolveAllPendingBets } from "@/lib/matchResults";
  * configurer manuellement dans les paramètres Vercel, ce environnement
  * sandbox n'y a pas accès.
  *
- * ⚠️ La fréquence réelle d'exécution dépend du plan Vercel du projet (le
- * plan Hobby limite fortement les cron jobs) — non vérifiable depuis cet
- * environnement, à confirmer dans le dashboard Vercel une fois déployé.
+ * Confirmé sur ce projet (plan Hobby) : Vercel limite les cron jobs à une
+ * exécution par jour (voir vercel.json), donc ce filet ne couvre que les
+ * longues périodes de silence dans le chat — le déclenchement principal
+ * reste checkAndAnnounceResults à chaque message de chat Twitch.
  */
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
