@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureUserByTwitchId } from "@/lib/users";
 import { sendChatMessage, verifyWebhookSignature } from "@/lib/twitch";
-import { SITE_URL } from "@/config/tournament";
+import { DEFAULT_CHAT_BET_STAKE, SITE_URL } from "@/config/tournament";
+import { computeMatchOdds } from "@/lib/odds";
 import {
   getCompletedSets,
   getEventInfo,
@@ -26,7 +27,11 @@ import {
   parseResetCommand,
   parseTop8Target,
 } from "@/lib/chatBets";
-import { detectNewLateBracketResults, formatMatchResultMessage } from "@/lib/matchResults";
+import {
+  detectNewLateBracketResults,
+  formatMatchResultMessage,
+  resolveAllPendingBets,
+} from "@/lib/matchResults";
 
 interface ChatMessageEvent {
   broadcaster_user_id: string;
@@ -105,6 +110,16 @@ function openEntrants(set: StartggSet): StartggEntrant[] {
     .filter((e): e is StartggEntrant => e !== null);
 }
 
+/**
+ * Place un pari classique depuis le chat, avec la même mise/cote/débit que
+ * le pari via le site (voir POST /api/bets) — la commande "!bet <joueur>" ne
+ * permet pas de saisir un montant, donc une mise fixe (DEFAULT_CHAT_BET_STAKE)
+ * est appliquée. Sans cela, les paris chat restaient sans mise ni cote
+ * enregistrées et sans débit de solde (bug historique : ce chemin n'avait
+ * jamais été mis à jour lors de l'introduction du système Ex).
+ * Échec silencieux (solde insuffisant, déjà parié sur ce match...), comme le
+ * reste du "!bet" classique qui ne répond jamais dans le chat.
+ */
 async function placeChatBet(
   set: StartggSet,
   chosenEntrant: { id: string; name: string },
@@ -113,18 +128,41 @@ async function placeChatBet(
 ) {
   const bettor = await ensureChatBettor(chatter);
 
-  await prisma.bet
-    .create({
-      data: {
-        userId: bettor.id,
-        setId: set.id,
-        eventSlug,
-        roundText: set.fullRoundText ?? "",
-        predictedEntrantId: chosenEntrant.id,
-        predictedEntrantName: chosenEntrant.name,
-      },
+  const chosenSlot = set.slots.find((slot) => slot.entrant?.id === chosenEntrant.id);
+  const opponentSlot = set.slots.find(
+    (slot) => slot.entrant && slot.entrant.id !== chosenEntrant.id,
+  );
+  const { oddsA: odds } = computeMatchOdds(chosenSlot?.seedNum ?? null, opponentSlot?.seedNum ?? null);
+
+  await prisma
+    .$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: bettor.id }, select: { exBalance: true } });
+      if (!user || user.exBalance < DEFAULT_CHAT_BET_STAKE) {
+        throw new Error("insufficient_balance");
+      }
+
+      await tx.user.update({
+        where: { id: bettor.id },
+        data: { exBalance: { decrement: DEFAULT_CHAT_BET_STAKE } },
+      });
+
+      return tx.bet.create({
+        data: {
+          userId: bettor.id,
+          setId: set.id,
+          eventSlug,
+          roundText: set.fullRoundText ?? "",
+          predictedEntrantId: chosenEntrant.id,
+          predictedEntrantName: chosenEntrant.name,
+          predictedEntrantSeed: chosenSlot?.seedNum ?? null,
+          opponentSeed: opponentSlot?.seedNum ?? null,
+          totalGames: set.totalGames,
+          stake: DEFAULT_CHAT_BET_STAKE,
+          odds,
+        },
+      });
     })
-    .catch(() => undefined); // déjà parié sur ce match : on ignore silencieusement
+    .catch(() => undefined); // solde insuffisant ou déjà parié sur ce match : on ignore silencieusement
 }
 
 /**
@@ -377,12 +415,21 @@ async function handleResetChatCommand(
 const RESULTS_CHECK_COOLDOWN_MS = 30_000;
 
 /**
- * À l'occasion d'un message de chat (peu importe lequel), vérifie si des
- * matchs de phases finales tardives viennent de se terminer et annonce leur
- * résultat — best-effort, protégé par un cooldown en base pour ne pas
- * interroger start.gg à chaque message de chat. Ce point de détection est
- * partagé avec la synchronisation admin (voir /api/admin/sync-results et
- * lib/matchResults.ts) plutôt que dupliqué.
+ * À l'occasion d'un message de chat (peu importe lequel), (1) résout TOUS
+ * les paris classiques encore en attente dont le match est terminé côté
+ * start.gg — n'importe quel round, pas seulement les phases finales
+ * tardives, puisqu'on peut parier sur n'importe quel match ouvert depuis le
+ * site — et (2) annonce dans le chat les résultats des matchs notables (Top
+ * 24+, ou impliquant un top seed avant — voir isNotableMatch) pas encore
+ * annoncés. Best-effort, protégé par un cooldown en base pour ne pas
+ * interroger start.gg à chaque message de chat.
+ *
+ * C'est le seul déclencheur automatique de la résolution des paris (avec le
+ * cron de secours, voir /api/cron/resolve-bets) : sans lui, les paris
+ * restent bloqués en attente tant qu'un admin ne clique pas manuellement sur
+ * "Sync results". Ce point de détection est partagé avec la synchronisation
+ * admin (voir /api/admin/sync-results et lib/matchResults.ts) plutôt que
+ * dupliqué.
  */
 async function checkAndAnnounceResults(
   tournament: { id: string; eventSlug: string; lastResultsCheckAt: Date | null },
@@ -402,6 +449,8 @@ async function checkAndAnnounceResults(
     where: { id: tournament.id },
     data: { lastResultsCheckAt: now },
   });
+
+  await resolveAllPendingBets().catch(() => undefined);
 
   const [completedSets, topSeedEntrantIds] = await Promise.all([
     getCompletedSets(tournament.eventSlug),

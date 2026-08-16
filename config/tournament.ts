@@ -51,6 +51,14 @@ export const DEFAULT_STARTING_EX = Number(process.env.DEFAULT_STARTING_EX ?? 100
 export const FALLBACK_ODDS = 2.0;
 
 /**
+ * Mise fixe appliquée aux paris classiques placés via la commande chat
+ * "!bet <joueur>", qui ne permet pas de saisir un montant (contrairement au
+ * site où la mise est un champ libre) — voir placeChatBet dans
+ * app/api/twitch/webhook/route.ts.
+ */
+export const DEFAULT_CHAT_BET_STAKE = Number(process.env.DEFAULT_CHAT_BET_STAKE ?? 500);
+
+/**
  * Points "Le Pari du Parry" : prono Top 8 pondéré par placement réel, MVC
  * (personnage) et reset de bracket. Classement séparé du LeaderBet des
  * paris sur matchs.

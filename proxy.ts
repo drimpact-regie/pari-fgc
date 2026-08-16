@@ -51,7 +51,10 @@ export const proxy = auth((req) => {
     pathname.startsWith("/api/twitch/webhook") ||
     // Flux self-service public d'autorisation du bot par un streamer
     // (scope channel:bot) — n'importe qui, sans compte sur ce site.
-    pathname.startsWith("/api/streamer/authorize");
+    pathname.startsWith("/api/streamer/authorize") ||
+    // Appelé par Vercel Cron, sans session navigateur — sécurité assurée par
+    // le secret CRON_SECRET vérifié dans la route elle-même.
+    pathname.startsWith("/api/cron");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

@@ -2,7 +2,7 @@ import type { Tournament } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { computeMatchBetPayout } from "@/lib/odds";
-import { isNotableMatch, SET_STATE, type StartggSet } from "@/lib/startgg";
+import { getSetResult, isNotableMatch, SET_STATE, StartggApiError, type StartggSet } from "@/lib/startgg";
 
 /**
  * Résout tous les paris classiques PENDING d'un set terminé (WON/LOST +
@@ -46,6 +46,56 @@ export async function resolveSetBets(set: StartggSet): Promise<number> {
   }
 
   return bets.length;
+}
+
+export interface ResolveAllPendingBetsResult {
+  resolvedSets: number;
+  resolvedBets: number;
+  errors: string[];
+}
+
+/**
+ * Balaie tous les matchs sur lesquels il reste au moins un pari PENDING
+ * (n'importe quel round, pas seulement les phases finales tardives — voir
+ * isNotableMatch, qui ne s'applique qu'à la sidebar et aux annonces chat, pas
+ * à la résolution) et résout ceux dont le set est terminé côté start.gg.
+ * Point de résolution unique et idempotent, appelé aussi bien par l'action
+ * admin manuelle (/api/admin/sync-results) que par le déclenchement
+ * automatique côté webhook Twitch (voir app/api/twitch/webhook/route.ts),
+ * pour ne pas dépendre d'un clic admin à chaque match terminé.
+ */
+export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResult> {
+  const pendingSetIds = await prisma.bet.findMany({
+    where: { status: "PENDING" },
+    distinct: ["setId"],
+    select: { setId: true },
+  });
+
+  let resolvedSets = 0;
+  let resolvedBets = 0;
+  const errors: string[] = [];
+
+  for (const { setId } of pendingSetIds) {
+    let set: StartggSet | null;
+    try {
+      set = await getSetResult(setId);
+    } catch (err) {
+      errors.push(
+        err instanceof StartggApiError ? `${setId}: ${err.message}` : `${setId}: erreur inconnue`,
+      );
+      continue;
+    }
+
+    if (!set) continue;
+
+    const resolvedCount = await resolveSetBets(set);
+    if (resolvedCount > 0) {
+      resolvedSets += 1;
+      resolvedBets += resolvedCount;
+    }
+  }
+
+  return { resolvedSets, resolvedBets, errors };
 }
 
 export interface CompletedMatchAnnouncement {

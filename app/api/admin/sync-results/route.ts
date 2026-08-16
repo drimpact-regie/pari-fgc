@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCompletedSets, getEventTopSeedEntrantIds, getSetResult, StartggApiError } from "@/lib/startgg";
+import { getCompletedSets, getEventTopSeedEntrantIds } from "@/lib/startgg";
 import { getTwitchUserByLogin, sendChatMessage } from "@/lib/twitch";
-import { detectNewLateBracketResults, formatMatchResultMessage, resolveSetBets } from "@/lib/matchResults";
+import {
+  detectNewLateBracketResults,
+  formatMatchResultMessage,
+  resolveAllPendingBets,
+} from "@/lib/matchResults";
 
 /**
  * Annonce dans le chat Twitch du tournoi les résultats de phases finales
@@ -57,37 +61,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  const pendingSetIds = await prisma.bet.findMany({
-    where: { status: "PENDING" },
-    distinct: ["setId"],
-    select: { setId: true },
-  });
-
-  let resolvedSets = 0;
-  let resolvedBets = 0;
-  const errors: string[] = [];
-
-  for (const { setId } of pendingSetIds) {
-    let set;
-    try {
-      set = await getSetResult(setId);
-    } catch (err) {
-      errors.push(
-        err instanceof StartggApiError
-          ? `${setId}: ${err.message}`
-          : `${setId}: erreur inconnue`,
-      );
-      continue;
-    }
-
-    if (!set) continue;
-
-    const resolvedCount = await resolveSetBets(set);
-    if (resolvedCount > 0) {
-      resolvedSets += 1;
-      resolvedBets += resolvedCount;
-    }
-  }
+  const { resolvedSets, resolvedBets, errors } = await resolveAllPendingBets();
 
   const tournamentsWithChat = await prisma.tournament.findMany({
     where: { twitchChannel: { not: null } },
