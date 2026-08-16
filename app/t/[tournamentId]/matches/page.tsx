@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import {
+  getCompletedSets,
   getEventPhases,
   getEventTopSeedEntrantIds,
   getPhaseGroupTopSeeds,
@@ -137,6 +138,23 @@ export default async function MatchesPage({
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
 
+  // Pour le bracket Top 8 (voir plus bas) : getUpcomingSets ne renvoie que
+  // les matchs pas encore commencés/en cours (state 1/2) — un match Top 8
+  // terminé disparaîtrait donc de l'arbre au fur et à mesure du tournoi.
+  // On va chercher les matchs terminés en plus, mais seulement si une phase
+  // "Top 8" existe réellement pour cet event, pour ne pas alourdir chaque
+  // chargement de page sans raison.
+  const top8PhaseId = phases.find((p) => /^top 8$/i.test(p.name.trim()))?.id ?? null;
+  let completedTop8Sets: StartggSet[] = [];
+  if (top8PhaseId) {
+    try {
+      const completedSets = await getCompletedSets(tournament.eventSlug);
+      completedTop8Sets = completedSets.filter((s) => s.phaseId === top8PhaseId);
+    } catch {
+      // best-effort : le bracket se contente alors des matchs encore ouverts/en cours.
+    }
+  }
+
   const [userBets, currentUser] = await Promise.all([
     prisma.bet.findMany({ where: { userId: session.user.id, eventSlug: tournament.eventSlug } }),
     prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } }),
@@ -190,10 +208,18 @@ export default async function MatchesPage({
 
   // Vue en arbre (façon bracket start.gg) sous la liste des rounds : ne
   // s'affiche que pour la phase "Top 8" elle-même — un affichage similaire
-  // pour des phases plus larges (Top 24+, poules) serait illisible.
-  const top8Phase = visiblePhaseSections.find((phase) => /^top 8$/i.test(phase.phaseName.trim()));
-  const bracketLayout = top8Phase
-    ? buildBracketLayout(top8Phase.roundGroups.flatMap((g) => g.sets))
+  // pour des phases plus larges (Top 24+, poules) serait illisible. Prend
+  // les matchs Top 8 ouverts/en cours (sets, filtré par phaseId) ET déjà
+  // terminés (completedTop8Sets, récupéré séparément — voir plus haut) pour
+  // garder l'arbre complet même une fois des matchs joués, plutôt que de les
+  // voir disparaître au fur et à mesure. Indépendant de visiblePhaseSections
+  // (qui masque les phases sans set "ouvert" — sans quoi l'arbre
+  // disparaîtrait lui aussi une fois tous les matchs Top 8 terminés).
+  const bracketLayout = top8PhaseId
+    ? buildBracketLayout([
+        ...sets.filter((s) => s.phaseId === top8PhaseId),
+        ...completedTop8Sets,
+      ])
     : null;
 
   return (
