@@ -24,11 +24,12 @@ export interface OpenMatchEntry {
 
 /**
  * Sidebar persistante listant les matchs classiques actuellement ouverts au
- * pari, à partir des phases finales tardives (Top N tardif, grande finale —
- * voir isLateBracketRound) : un aperçu de "ce qui se parie là, maintenant"
- * sans avoir à déplier round par round dans la liste principale. Chaque
- * entrée permet de parier directement (même BetCard que la liste
- * principale) ou de sauter au match correspondant plus bas sur la page.
+ * pari : à partir du Top 24 (inclus), tous les matchs ouverts ; avant, les
+ * matchs ouverts impliquant au moins un des 16 meilleurs seeds du tournoi
+ * (voir isNotableMatch) — un aperçu de "ce qui se parie là, maintenant" sans
+ * avoir à déplier round par round dans la liste principale. Chaque entrée
+ * permet de parier directement (même BetCard que la liste principale) ou de
+ * sauter au match correspondant plus bas sur la page.
  */
 export default function OpenMatchesSidebar({
   tournamentId,
@@ -46,12 +47,12 @@ export default function OpenMatchesSidebar({
         style={{ maxHeight: "calc(100vh - 2rem)" }}
       >
         <p className="text-sm font-semibold">
-          Matchs ouverts (phases finales){entries.length > 0 ? ` · ${entries.length}` : ""}
+          Paris ouverts{entries.length > 0 ? ` · ${entries.length}` : ""}
         </p>
 
         {entries.length === 0 && (
           <p className="text-xs" style={{ color: "var(--muted)" }}>
-            Aucun match ouvert au pari pour l&apos;instant à partir du Top 24.
+            Aucun pari ouvert pour l&apos;instant.
           </p>
         )}
 

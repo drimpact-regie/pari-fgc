@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   detectBracketReset,
   isLateBracketRound,
+  isLateBracketSet,
   isMvcLocked,
+  isNotableMatch,
   isSetOpenForBetting,
   SET_STATE,
   type StartggEntrant,
@@ -156,5 +158,62 @@ describe("isSetOpenForBetting", () => {
     ];
     expect(isSetOpenForBetting(makeSet({ state: SET_STATE.STARTED, slots }))).toBe(false);
     expect(isSetOpenForBetting(makeSet({ state: SET_STATE.COMPLETED, slots }))).toBe(false);
+  });
+});
+
+describe("isLateBracketSet", () => {
+  it("matches on fullRoundText alone, like isLateBracketRound", () => {
+    expect(isLateBracketSet(makeSet({ fullRoundText: "Top 8", phaseName: null }))).toBe(true);
+    expect(isLateBracketSet(makeSet({ fullRoundText: "Round 1 Pools", phaseName: null }))).toBe(
+      false,
+    );
+  });
+
+  it("also matches when only the phase name (not the set's own round label) says Top N — some tournaments label the phase 'Top 8' while individual sets still read 'Winners Final'/'Round 1'", () => {
+    const set = makeSet({ fullRoundText: "Winners Final", phaseName: "Top 8" });
+    expect(isLateBracketRound(set.fullRoundText)).toBe(false); // the old, narrower check misses this
+    expect(isLateBracketSet(set)).toBe(true);
+  });
+
+  it("excludes early rounds whose phase name is also early (e.g. pools)", () => {
+    const set = makeSet({ fullRoundText: "Round 1", phaseName: "Poules" });
+    expect(isLateBracketSet(set)).toBe(false);
+  });
+});
+
+describe("isNotableMatch", () => {
+  it("includes any open Top-24+ match regardless of seed", () => {
+    const set = makeSet({
+      fullRoundText: "Top 8",
+      slots: [
+        { entrant: makeEntrant("1"), seedNum: 5, score: null },
+        { entrant: makeEntrant("2"), seedNum: 6, score: null },
+      ],
+    });
+    expect(isNotableMatch(set, new Set())).toBe(true);
+  });
+
+  it("excludes an early-round match when neither entrant is a top seed", () => {
+    const set = makeSet({
+      fullRoundText: "Round 1 Pools",
+      phaseName: "Poules",
+      slots: [
+        { entrant: makeEntrant("40"), seedNum: 40, score: null },
+        { entrant: makeEntrant("41"), seedNum: 41, score: null },
+      ],
+    });
+    expect(isNotableMatch(set, new Set(["1", "2", "3"]))).toBe(false);
+  });
+
+  it("includes an early-round match when at least one entrant is a top seed", () => {
+    const set = makeSet({
+      fullRoundText: "Round 1 Pools",
+      phaseName: "Poules",
+      slots: [
+        { entrant: makeEntrant("1"), seedNum: 1, score: null },
+        { entrant: makeEntrant("42"), seedNum: 42, score: null },
+      ],
+    });
+    expect(isNotableMatch(set, new Set(["1"]))).toBe(true);
   });
 });

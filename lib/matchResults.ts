@@ -2,7 +2,7 @@ import type { Tournament } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { computeMatchBetPayout } from "@/lib/odds";
-import { isLateBracketRound, SET_STATE, type StartggSet } from "@/lib/startgg";
+import { isNotableMatch, SET_STATE, type StartggSet } from "@/lib/startgg";
 
 /**
  * Résout tous les paris classiques PENDING d'un set terminé (WON/LOST +
@@ -56,24 +56,28 @@ export interface CompletedMatchAnnouncement {
 }
 
 /**
- * Détecte, parmi des sets terminés déjà récupérés côté start.gg, ceux des
- * phases finales tardives (Top N tardif, grande finale — voir
- * isLateBracketRound) pas encore annoncés dans le chat pour ce tournoi.
- * Pour chacun : résout ses paris classiques en attente (best-effort, sans
- * effet si déjà résolus ailleurs) puis le marque comme annoncé pour ne pas
- * le republier au prochain passage. Renvoie les résultats fraîchement
- * détectés, prêts à être formatés pour le chat.
+ * Détecte, parmi des sets terminés déjà récupérés côté start.gg, ceux qui
+ * comptent comme "notables" (phases finales tardives, Top N tardif/grande
+ * finale, OU impliquant un des meilleurs seeds du tournoi même en phase de
+ * poules — voir isNotableMatch) pas encore annoncés dans le chat pour ce
+ * tournoi. Pour chacun : résout ses paris classiques en attente
+ * (best-effort, sans effet si déjà résolus ailleurs) puis le marque comme
+ * annoncé pour ne pas le republier au prochain passage. Renvoie les
+ * résultats fraîchement détectés, prêts à être formatés pour le chat.
  *
  * Prend `completedSets` en paramètre (plutôt que d'appeler start.gg
  * elle-même) pour rester testable sans réseau — l'appelant se charge de
- * l'appel getCompletedSets() et de sa gestion d'erreur.
+ * l'appel getCompletedSets() et de sa gestion d'erreur. `topSeedEntrantIds`
+ * (best-effort, peut être un Set vide si l'appelant n'a pas pu le
+ * récupérer) sert au même usage.
  */
 export async function detectNewLateBracketResults(
   tournament: Pick<Tournament, "id" | "eventSlug">,
   completedSets: StartggSet[],
+  topSeedEntrantIds: ReadonlySet<string> = new Set(),
 ): Promise<CompletedMatchAnnouncement[]> {
   const lateBracketCompleted = completedSets.filter(
-    (set) => set.winnerId != null && isLateBracketRound(set.fullRoundText),
+    (set) => set.winnerId != null && isNotableMatch(set, topSeedEntrantIds),
   );
   if (lateBracketCompleted.length === 0) return [];
 

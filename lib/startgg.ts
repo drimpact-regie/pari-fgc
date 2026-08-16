@@ -309,6 +309,30 @@ const PHASE_GROUP_SEEDS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * Meilleurs seeds toutes poules confondues, déduits de la seed de la
+ * première phase de l'event (celle attribuée à l'inscription, avant
+ * répartition en poules où le seed redevient local à chaque poule).
+ */
+const EVENT_TOP_SEEDS_QUERY = /* GraphQL */ `
+  query EventTopSeeds($eventSlug: String!, $perPage: Int!) {
+    event(slug: $eventSlug) {
+      phases {
+        id
+        seeds(query: { perPage: $perPage, page: 1 }) {
+          nodes {
+            seedNum
+            entrant {
+              id
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 /** Équivalent de Req_StatsJoueurs: classement (placement) par joueur. */
 const STANDINGS_QUERY = /* GraphQL */ `
   query PlayerStandings($eventSlug: String!, $page: Int!, $perPage: Int!) {
@@ -643,6 +667,50 @@ export async function getPhaseGroupTopSeeds(
 }
 
 /**
+ * Identifiants des `limit` meilleurs seeds du tournoi (toutes poules
+ * confondues), déduits de la toute première étape de l'event — c'est celle
+ * qui reflète le seed d'ensemble attribué à l'inscription, avant que les
+ * joueurs ne soient répartis en poules (dont le seed local n'est pas
+ * comparable d'une poule à l'autre). Sert à repérer les matchs de favoris
+ * à mettre en avant avant le Top 24 (voir isNotableMatch).
+ *
+ * ⚠️ Champ `phase.seeds` non vérifié en conditions réelles (pas d'accès
+ * réseau start.gg depuis cet environnement) — à confirmer une fois
+ * déployé : si la première phase de l'event n'est pas la bonne source de
+ * seed d'ensemble pour un tournoi donné, cette liste peut être vide ou
+ * incomplète (dans ce cas isNotableMatch retombe simplement sur le
+ * périmètre Top 24, sans planter).
+ */
+export async function getEventTopSeedEntrantIds(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+  limit = 16,
+): Promise<Set<string>> {
+  const data = await callStartGG<{
+    event: {
+      phases: {
+        id: string | number;
+        seeds: {
+          nodes: { seedNum: number; entrant: { id: string | number; name: string } | null }[];
+        } | null;
+      }[] | null;
+    } | null;
+  }>(EVENT_TOP_SEEDS_QUERY, { eventSlug, perPage: Math.max(limit, 8) });
+
+  const firstPhase = data.event?.phases?.[0];
+  const nodes = firstPhase?.seeds?.nodes ?? [];
+  return new Set(
+    nodes
+      .filter(
+        (n): n is { seedNum: number; entrant: { id: string | number; name: string } } =>
+          n.entrant !== null,
+      )
+      .sort((a, b) => a.seedNum - b.seedNum)
+      .slice(0, limit)
+      .map((n) => String(n.entrant.id)),
+  );
+}
+
+/**
  * Détecte un reset de bracket en grande finale : start.gg génère un set
  * séparé ("Grand Final Reset") uniquement quand le joueur venant du loser
  * bracket a gagné le premier set de la grande finale. Retourne null si on
@@ -713,6 +781,45 @@ export function isSetOpenForBetting(set: StartggSet): boolean {
     set.state === SET_STATE.NOT_STARTED &&
     set.slots.filter((slot) => slot.entrant !== null).length === 2
   );
+}
+
+/**
+ * Comme isLateBracketRound, mais vérifie aussi le nom de la PHASE (pas
+ * seulement le libellé de round de chaque set) : certains tournois
+ * affichent "Top N" comme nom de phase (event.phases[].name / phaseName,
+ * visible en en-tête de section sur /matches) plutôt que dans le
+ * fullRoundText de chaque set individuel, qui peut alors rester "Winners
+ * Final", "Round 1"... au sein de cette phase. Sans ce repli, ces sets ne
+ * matchaient jamais isLateBracketRound malgré une phase "Top 8" clairement
+ * affichée juste à côté — cause probable du bug "sidebar toujours vide"
+ * alors que des matchs sont visiblement ouverts dans la liste principale.
+ */
+export function isLateBracketSet(
+  set: Pick<StartggSet, "fullRoundText" | "phaseName">,
+  cutoff = 24,
+): boolean {
+  return (
+    isLateBracketRound(set.fullRoundText, cutoff) ||
+    isLateBracketRound(set.phaseName ?? "", cutoff)
+  );
+}
+
+/**
+ * Vrai si ce match implique au moins un des meilleurs seeds du tournoi
+ * (toutes poules confondues) OU fait partie des phases finales tardives
+ * (voir isLateBracketSet) — sert à décider quels matchs mettre en avant
+ * (sidebar "Paris ouverts", annonces de résultat en chat) avant le Top 24 :
+ * le reste du bracket à ce stade (poules, Round 1/2/3...) n'a pas besoin
+ * d'être mis en avant, mais les matchs des favoris restent suivis même en
+ * poules.
+ */
+export function isNotableMatch(
+  set: Pick<StartggSet, "fullRoundText" | "phaseName" | "slots">,
+  topSeedEntrantIds: ReadonlySet<string>,
+  cutoff = 24,
+): boolean {
+  if (isLateBracketSet(set, cutoff)) return true;
+  return set.slots.some((slot) => slot.entrant != null && topSeedEntrantIds.has(slot.entrant.id));
 }
 
 /** Palmarès (victoires/défaites) par joueur, calculé à partir des sets terminés. */

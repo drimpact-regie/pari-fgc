@@ -7,6 +7,7 @@ import { SITE_URL } from "@/config/tournament";
 import {
   getCompletedSets,
   getEventInfo,
+  getEventTopSeedEntrantIds,
   getSetResult,
   getStandings,
   getUpcomingSets,
@@ -402,8 +403,11 @@ async function checkAndAnnounceResults(
     data: { lastResultsCheckAt: now },
   });
 
-  const completedSets = await getCompletedSets(tournament.eventSlug);
-  const results = await detectNewLateBracketResults(tournament, completedSets);
+  const [completedSets, topSeedEntrantIds] = await Promise.all([
+    getCompletedSets(tournament.eventSlug),
+    getEventTopSeedEntrantIds(tournament.eventSlug).catch(() => new Set<string>()),
+  ]);
+  const results = await detectNewLateBracketResults(tournament, completedSets, topSeedEntrantIds);
   if (results.length === 0) return;
 
   await reply(broadcasterId, formatMatchResultMessage(results));

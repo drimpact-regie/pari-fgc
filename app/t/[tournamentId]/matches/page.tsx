@@ -5,9 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import {
   getEventPhases,
+  getEventTopSeedEntrantIds,
   getPhaseGroupTopSeeds,
   getUpcomingSets,
-  isLateBracketRound,
+  isNotableMatch,
   isSetOpenForBetting,
   SET_STATE,
   StartggApiError,
@@ -123,10 +124,12 @@ export default async function MatchesPage({
   let sets: StartggSet[] = [];
   let phases: StartggPhase[] = [];
   let error: string | null = null;
+  let topSeedEntrantIds = new Set<string>();
   try {
-    [sets, phases] = await Promise.all([
+    [sets, phases, topSeedEntrantIds] = await Promise.all([
       getUpcomingSets(tournament.eventSlug),
       getEventPhases(tournament.eventSlug),
+      getEventTopSeedEntrantIds(tournament.eventSlug, 16).catch(() => new Set<string>()),
     ]);
   } catch (err) {
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
@@ -141,12 +144,14 @@ export default async function MatchesPage({
 
   const phaseSections = buildPhaseSections(phases, sets);
 
-  // Sidebar "matchs ouverts" : aperçu des matchs classiques réellement
-  // pariables (state NOT_STARTED, deux entrants connus) dans les phases
-  // finales tardives (Top N tardif, grande finale), tous rounds confondus,
-  // sans avoir à déplier round par round dans la liste principale.
+  // Sidebar "Paris ouverts" : aperçu des matchs classiques réellement
+  // pariables (state NOT_STARTED, deux entrants connus), sans avoir à
+  // déplier round par round dans la liste principale. À partir du Top 24
+  // (isNotableMatch via isLateBracketSet) : tous les matchs ouverts. Avant
+  // le Top 24 (poules, Round 1/2/3...) : uniquement ceux impliquant un des
+  // 16 meilleurs seeds du tournoi, qui restent intéressants à suivre.
   const openMatchEntries: OpenMatchEntry[] = sets
-    .filter((set) => isLateBracketRound(set.fullRoundText) && isSetOpenForBetting(set))
+    .filter((set) => isSetOpenForBetting(set) && isNotableMatch(set, topSeedEntrantIds))
     .map((set) => ({
       set,
       entrants: buildEntrantsWithOdds(set),

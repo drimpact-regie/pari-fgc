@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getCompletedSets, getSetResult, StartggApiError } from "@/lib/startgg";
+import { getCompletedSets, getEventTopSeedEntrantIds, getSetResult, StartggApiError } from "@/lib/startgg";
 import { getTwitchUserByLogin, sendChatMessage } from "@/lib/twitch";
 import { detectNewLateBracketResults, formatMatchResultMessage, resolveSetBets } from "@/lib/matchResults";
 
@@ -15,8 +15,15 @@ import { detectNewLateBracketResults, formatMatchResultMessage, resolveSetBets }
  */
 async function announceLateBracketResults(tournamentId: string, eventSlug: string, twitchChannel: string) {
   try {
-    const completedSets = await getCompletedSets(eventSlug);
-    const results = await detectNewLateBracketResults({ id: tournamentId, eventSlug }, completedSets);
+    const [completedSets, topSeedEntrantIds] = await Promise.all([
+      getCompletedSets(eventSlug),
+      getEventTopSeedEntrantIds(eventSlug).catch(() => new Set<string>()),
+    ]);
+    const results = await detectNewLateBracketResults(
+      { id: tournamentId, eventSlug },
+      completedSets,
+      topSeedEntrantIds,
+    );
     if (results.length === 0) return;
 
     const broadcaster = await getTwitchUserByLogin(twitchChannel);
