@@ -17,7 +17,7 @@ interface ExistingBet {
   entrantName: string;
   stake: number;
   odds: number;
-  status: "PENDING" | "WON" | "LOST";
+  status: "PENDING" | "WON" | "LOST" | "CANCELLED";
   /** Gain total crédité si status === "WON" (0 sinon). */
   payout: number;
 }
@@ -36,6 +36,7 @@ const STATUS_LABEL: Record<ExistingBet["status"], string> = {
   PENDING: "en attente",
   WON: "gagné",
   LOST: "perdu",
+  CANCELLED: "annulé (match jamais confirmé)",
 };
 
 export default function BetCard({

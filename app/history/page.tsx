@@ -5,11 +5,17 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_LABEL = { PENDING: "En attente", WON: "Gagné", LOST: "Perdu" } as const;
+const STATUS_LABEL = {
+  PENDING: "En attente",
+  WON: "Gagné",
+  LOST: "Perdu",
+  CANCELLED: "Annulé",
+} as const;
 const STATUS_COLOR = {
   PENDING: "var(--muted)",
   WON: "var(--win)",
   LOST: "var(--lose)",
+  CANCELLED: "var(--warn)",
 } as const;
 
 export default async function HistoryPage() {

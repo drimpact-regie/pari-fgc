@@ -558,7 +558,11 @@ export async function getUpcomingSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
-  return sets.map(normalizeSet);
+  // Exclus dès la source les matchs "prévisionnels" (voir isPreviewSetId) :
+  // ni la sidebar, ni la liste des rounds, ni le pari chat ne doivent
+  // jamais les proposer comme pariables, sous peine de créer des paris
+  // orphelins qui ne pourront jamais se résoudre.
+  return sets.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
 }
 
 export async function getCompletedSets(
@@ -574,7 +578,7 @@ export async function getCompletedSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
-  return sets.map(normalizeSet);
+  return sets.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
 }
 
 export async function getStandings(
@@ -772,14 +776,31 @@ export function isLateBracketRound(fullRoundText: string, cutoff = 24): boolean 
 }
 
 /**
- * Vrai si ce set est réellement ouvert au pari : pas encore commencé ET les
+ * Vrai si cet identifiant de set est un match "prévisionnel" (bracket pas
+ * encore réellement généré côté start.gg — aperçu affiché avant que les
+ * poules/le bracket ne soient créés). Repérable au préfixe "preview_" de
+ * l'id (un vrai set a un id purement numérique) ; ces sets renvoient aussi
+ * systématiquement un fullRoundText vide. Un tel id n'est PAS une véritable
+ * ressource "Set" interrogeable plus tard côté start.gg : y parier crée un
+ * pari qui ne pourra jamais se résoudre automatiquement, faute de match
+ * réel à retrouver (voir resolveAllPendingBets dans lib/matchResults.ts,
+ * qui annule directement ces paris plutôt que d'attendre indéfiniment).
+ */
+export function isPreviewSetId(setId: string): boolean {
+  return setId.startsWith("preview_");
+}
+
+/**
+ * Vrai si ce set est réellement ouvert au pari : pas encore commencé, les
  * deux entrants sont connus (sinon on attend encore le résultat d'un match
- * précédent pour savoir qui y jouera).
+ * précédent pour savoir qui y jouera), et ce n'est pas un match prévisionnel
+ * (voir isPreviewSetId) qui ne deviendra jamais un vrai match résolvable.
  */
 export function isSetOpenForBetting(set: StartggSet): boolean {
   return (
     set.state === SET_STATE.NOT_STARTED &&
-    set.slots.filter((slot) => slot.entrant !== null).length === 2
+    set.slots.filter((slot) => slot.entrant !== null).length === 2 &&
+    !isPreviewSetId(set.id)
   );
 }
 

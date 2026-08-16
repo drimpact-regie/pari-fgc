@@ -2,7 +2,14 @@ import type { Tournament } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { computeMatchBetPayout } from "@/lib/odds";
-import { getSetResult, isNotableMatch, SET_STATE, StartggApiError, type StartggSet } from "@/lib/startgg";
+import {
+  getSetResult,
+  isNotableMatch,
+  isPreviewSetId,
+  SET_STATE,
+  StartggApiError,
+  type StartggSet,
+} from "@/lib/startgg";
 
 /**
  * Résout tous les paris classiques PENDING d'un set terminé (WON/LOST +
@@ -48,9 +55,41 @@ export async function resolveSetBets(set: StartggSet): Promise<number> {
   return bets.length;
 }
 
+/**
+ * Annule tous les paris PENDING d'un match "prévisionnel" (voir
+ * isPreviewSetId) : ce n'est pas un vrai match, il ne se terminera jamais
+ * côté start.gg, donc ces paris resteraient bloqués en attente pour
+ * toujours si on se contentait d'interroger start.gg comme pour un match
+ * normal. Rembourse la mise si elle avait été débitée (normalement 0 pour
+ * ces paris légués, mais par sécurité si stake > 0).
+ */
+async function cancelBetsForPreviewSet(setId: string): Promise<number> {
+  const bets = await prisma.bet.findMany({ where: { setId, status: "PENDING" } });
+
+  for (const bet of bets) {
+    await prisma.$transaction([
+      prisma.bet.update({
+        where: { id: bet.id },
+        data: { status: "CANCELLED", pointsAwarded: 0, resolvedAt: new Date() },
+      }),
+      ...(bet.stake && bet.stake > 0
+        ? [
+            prisma.user.update({
+              where: { id: bet.userId },
+              data: { exBalance: { increment: bet.stake } },
+            }),
+          ]
+        : []),
+    ]);
+  }
+
+  return bets.length;
+}
+
 export interface ResolveAllPendingBetsResult {
   resolvedSets: number;
   resolvedBets: number;
+  cancelledBets: number;
   errors: string[];
 }
 
@@ -58,7 +97,9 @@ export interface ResolveAllPendingBetsResult {
  * Balaie tous les matchs sur lesquels il reste au moins un pari PENDING
  * (n'importe quel round, pas seulement les phases finales tardives — voir
  * isNotableMatch, qui ne s'applique qu'à la sidebar et aux annonces chat, pas
- * à la résolution) et résout ceux dont le set est terminé côté start.gg.
+ * à la résolution) et résout ceux dont le set est terminé côté start.gg, ou
+ * annule ceux placés sur un match "prévisionnel" (voir cancelBetsForPreviewSet
+ * — ces id ne sont jamais interrogés côté start.gg, ça ne mènerait à rien).
  * Point de résolution unique et idempotent, appelé aussi bien par l'action
  * admin manuelle (/api/admin/sync-results) que par le déclenchement
  * automatique côté webhook Twitch (voir app/api/twitch/webhook/route.ts),
@@ -73,9 +114,15 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
 
   let resolvedSets = 0;
   let resolvedBets = 0;
+  let cancelledBets = 0;
   const errors: string[] = [];
 
   for (const { setId } of pendingSetIds) {
+    if (isPreviewSetId(setId)) {
+      cancelledBets += await cancelBetsForPreviewSet(setId);
+      continue;
+    }
+
     let set: StartggSet | null;
     try {
       set = await getSetResult(setId);
@@ -95,7 +142,7 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
     }
   }
 
-  return { resolvedSets, resolvedBets, errors };
+  return { resolvedSets, resolvedBets, cancelledBets, errors };
 }
 
 export interface CompletedMatchAnnouncement {

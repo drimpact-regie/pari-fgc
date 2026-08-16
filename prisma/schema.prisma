@@ -16,6 +16,11 @@ enum BetStatus {
   PENDING
   WON
   LOST
+  // Pari annulé car placé sur un match "prévisionnel" start.gg (id
+  // "preview_...") qui ne correspond à aucun vrai match résolvable — voir
+  // isPreviewSetId (lib/startgg.ts) et resolveAllPendingBets
+  // (lib/matchResults.ts). N'a de sens que pour les paris classiques (Bet).
+  CANCELLED
 }
 
 /**

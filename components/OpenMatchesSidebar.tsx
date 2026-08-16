@@ -12,7 +12,7 @@ interface ExistingBet {
   entrantName: string;
   stake: number;
   odds: number;
-  status: "PENDING" | "WON" | "LOST";
+  status: "PENDING" | "WON" | "LOST" | "CANCELLED";
   payout: number;
 }
 

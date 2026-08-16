@@ -6,6 +6,7 @@ import {
   isLateBracketSet,
   isMvcLocked,
   isNotableMatch,
+  isPreviewSetId,
   isSetOpenForBetting,
   SET_STATE,
   type StartggEntrant,
@@ -158,6 +159,29 @@ describe("isSetOpenForBetting", () => {
     ];
     expect(isSetOpenForBetting(makeSet({ state: SET_STATE.STARTED, slots }))).toBe(false);
     expect(isSetOpenForBetting(makeSet({ state: SET_STATE.COMPLETED, slots }))).toBe(false);
+  });
+
+  it("is not open when the set is a start.gg preview match (bracket not really generated yet)", () => {
+    const set = makeSet({
+      id: "preview_3415169_3_1",
+      state: SET_STATE.NOT_STARTED,
+      slots: [
+        { entrant: makeEntrant("1"), seedNum: 1, score: null },
+        { entrant: makeEntrant("2"), seedNum: 2, score: null },
+      ],
+    });
+    expect(isSetOpenForBetting(set)).toBe(false);
+  });
+});
+
+describe("isPreviewSetId", () => {
+  it("recognizes the preview_ prefix used by start.gg's bracket-preview placeholder matches", () => {
+    expect(isPreviewSetId("preview_3415169_3_1")).toBe(true);
+    expect(isPreviewSetId("preview_3407472_1_4")).toBe(true);
+  });
+
+  it("does not flag a real, numeric start.gg set id", () => {
+    expect(isPreviewSetId("3948572")).toBe(false);
   });
 });
 

@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  const { resolvedSets, resolvedBets, errors } = await resolveAllPendingBets();
+  const { resolvedSets, resolvedBets, cancelledBets, errors } = await resolveAllPendingBets();
 
   const tournamentsWithChat = await prisma.tournament.findMany({
     where: { twitchChannel: { not: null } },
@@ -72,5 +72,5 @@ export async function POST(request: Request) {
     ),
   );
 
-  return NextResponse.json({ resolvedSets, resolvedBets, errors });
+  return NextResponse.json({ resolvedSets, resolvedBets, cancelledBets, errors });
 }

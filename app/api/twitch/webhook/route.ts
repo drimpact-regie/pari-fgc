@@ -13,6 +13,7 @@ import {
   getStandings,
   getUpcomingSets,
   isMvcLocked,
+  isPreviewSetId,
   SET_STATE,
   type StartggEntrant,
   type StartggSet,
@@ -126,6 +127,12 @@ async function placeChatBet(
   eventSlug: string,
   chatter: { id: string; login: string; displayName: string },
 ) {
+  // Garde-fou en plus du filtrage à la source (getUpcomingSets) : un match
+  // "prévisionnel" (voir isPreviewSetId) n'est pas un vrai match résolvable
+  // — peut arriver ici via tournament.activeChatSetId, qui contourne ce
+  // filtrage en interrogeant start.gg directement par id.
+  if (isPreviewSetId(set.id)) return;
+
   const bettor = await ensureChatBettor(chatter);
 
   const chosenSlot = set.slots.find((slot) => slot.entrant?.id === chosenEntrant.id);

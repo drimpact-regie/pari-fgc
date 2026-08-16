@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
-import { getSetResult, SET_STATE, StartggApiError } from "@/lib/startgg";
+import { getSetResult, isPreviewSetId, SET_STATE, StartggApiError } from "@/lib/startgg";
 import { computeMatchOdds } from "@/lib/odds";
 
 const betSchema = z.object({
@@ -62,6 +62,16 @@ export async function POST(request: Request) {
 
   if (!set) {
     return NextResponse.json({ error: "Match introuvable." }, { status: 404 });
+  }
+
+  // Garde-fou en plus du filtrage à la source (getUpcomingSets) : un match
+  // "prévisionnel" (voir isPreviewSetId) n'est pas un vrai match résolvable,
+  // y parier créerait un pari bloqué indéfiniment en attente.
+  if (isPreviewSetId(set.id)) {
+    return NextResponse.json(
+      { error: "Ce match n'est pas encore confirmé par start.gg, réessaie une fois le bracket généré." },
+      { status: 409 },
+    );
   }
 
   if (set.state !== SET_STATE.NOT_STARTED) {

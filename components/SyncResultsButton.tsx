@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 interface SyncResult {
   resolvedSets: number;
   resolvedBets: number;
+  cancelledBets: number;
   errors: string[];
 }
 
@@ -54,6 +55,8 @@ export default function SyncResultsButton() {
           {result.resolvedSets} match{result.resolvedSets > 1 ? "s" : ""} résolu
           {result.resolvedSets > 1 ? "s" : ""}, {result.resolvedBets} pari
           {result.resolvedBets > 1 ? "s" : ""} mis à jour.
+          {result.cancelledBets > 0 &&
+            ` ${result.cancelledBets} pari${result.cancelledBets > 1 ? "s" : ""} annulé${result.cancelledBets > 1 ? "s" : ""} (match jamais réellement généré côté start.gg).`}
           {result.errors.length > 0 && ` ${result.errors.length} erreur(s).`}
         </p>
       )}
