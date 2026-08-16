@@ -18,10 +18,12 @@ import {
   type StartggSet,
 } from "@/lib/startgg";
 import { computeMatchOdds } from "@/lib/odds";
+import { buildBracketLayout } from "@/lib/bracket";
 import { FALLBACK_ODDS } from "@/config/tournament";
 import BetCard from "@/components/BetCard";
 import ActiveChatSetButton from "@/components/ActiveChatSetButton";
 import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatchesSidebar";
+import Top8Bracket from "@/components/Top8Bracket";
 import type { Bet } from "@prisma/client";
 
 interface RoundGroup {
@@ -178,6 +180,22 @@ export default async function MatchesPage({
     ).filter(([, seeds]) => seeds.length > 0),
   );
 
+  // Une étape sans set généré côté start.gg n'a encore rien d'accessible (ni
+  // pari possible, ni résultat) — l'afficher quand même comme "Pas encore
+  // ouvert" n'apportait aucune information utile et encombrait la liste
+  // avant les vraies phases en cours.
+  const visiblePhaseSections = phaseSections.filter((phase) =>
+    phase.roundGroups.some((g) => g.sets.length > 0),
+  );
+
+  // Vue en arbre (façon bracket start.gg) sous la liste des rounds : ne
+  // s'affiche que pour la phase "Top 8" elle-même — un affichage similaire
+  // pour des phases plus larges (Top 24+, poules) serait illisible.
+  const top8Phase = visiblePhaseSections.find((phase) => /^top 8$/i.test(phase.phaseName.trim()));
+  const bracketLayout = top8Phase
+    ? buildBracketLayout(top8Phase.roundGroups.flatMap((g) => g.sets))
+    : null;
+
   return (
     <div className="flex gap-4 items-start">
       <OpenMatchesSidebar
@@ -197,13 +215,7 @@ export default async function MatchesPage({
         <p style={{ color: "var(--muted)" }}>Aucune étape disponible pour le moment.</p>
       )}
 
-      {phaseSections
-        // Une étape sans set généré côté start.gg n'a encore rien d'accessible
-        // (ni pari possible, ni résultat) — l'afficher quand même comme
-        // "Pas encore ouvert" n'apportait aucune information utile et
-        // encombrait la liste avant les vraies phases en cours.
-        .filter((phase) => phase.roundGroups.some((g) => g.sets.length > 0))
-        .map((phase) => {
+      {visiblePhaseSections.map((phase) => {
         const totalSets = phase.roundGroups.reduce((n, g) => n + g.sets.length, 0);
         const openSets = phase.roundGroups.reduce(
           (n, g) => n + g.sets.filter((s) => s.state === SET_STATE.NOT_STARTED).length,
@@ -300,6 +312,14 @@ export default async function MatchesPage({
           </details>
         );
       })}
+
+      {bracketLayout && (
+        <Top8Bracket
+          winners={bracketLayout.winners}
+          grandFinal={bracketLayout.grandFinal}
+          losers={bracketLayout.losers}
+        />
+      )}
       </div>
     </div>
   );
