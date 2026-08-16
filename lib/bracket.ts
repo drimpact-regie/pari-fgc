@@ -11,6 +11,17 @@ export interface BracketLayout {
   losers: BracketColumn[];
 }
 
+// Certains tournois taguent tout le bracket final sous une phase nommée
+// "Top 24" même quand elle ne contient en réalité qu'un bracket 8 joueurs
+// (confirmé sur CEO 2026) — l'appelant matche donc large sur le nom de
+// phase plutôt que de se limiter à "Top 8" exactement. Filet de sécurité
+// ici : si une phase matchée est réellement plus grande (vrai bracket 24
+// joueurs), on ne garde que les rounds les plus proches de la grande
+// finale de chaque côté, pour rester lisible plutôt que d'afficher un
+// arbre démesuré.
+const MAX_WINNERS_COLUMNS = 3;
+const MAX_LOSERS_COLUMNS = 5;
+
 /**
  * Regroupe les sets d'une phase à élimination directe (typiquement le Top 8)
  * en colonnes pour un affichage en arbre façon bracket start.gg : côté
@@ -32,11 +43,14 @@ export function buildBracketLayout(sets: StartggSet[]): BracketLayout {
   const winnersSets = sets.filter((s) => !grandFinalIds.has(s.id) && s.round > 0);
   const losersSets = sets.filter((s) => !grandFinalIds.has(s.id) && s.round < 0);
 
+  const winners = groupIntoColumns(winnersSets, (a, b) => a - b);
+  const losers = groupIntoColumns(losersSets, (a, b) => b - a); // -1, -2, -3... (plus proche de 0 en premier)
+
   return {
-    winners: groupIntoColumns(winnersSets, (a, b) => a - b),
+    winners: winners.slice(Math.max(0, winners.length - MAX_WINNERS_COLUMNS)),
     // "Grand Final" avant "Grand Final Reset", peu importe leur round.
     grandFinal: groupIntoColumns(grandFinalSets, (a, b) => a - b),
-    losers: groupIntoColumns(losersSets, (a, b) => b - a), // -1, -2, -3... (plus proche de 0 en premier)
+    losers: losers.slice(Math.max(0, losers.length - MAX_LOSERS_COLUMNS)),
   };
 }
 

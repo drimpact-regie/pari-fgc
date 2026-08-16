@@ -67,4 +67,34 @@ describe("buildBracketLayout", () => {
   it("returns empty columns when there are no winners/losers/grand final sets", () => {
     expect(buildBracketLayout([])).toEqual({ winners: [], grandFinal: [], losers: [] });
   });
+
+  it("caps to the last few rounds near the Grand Final when a matched phase is actually much larger", () => {
+    // 6 winners rounds, 10 losers rounds — as could happen if a phase named
+    // "Top 24" is matched but genuinely has a much bigger bracket than 8
+    // players in some other tournament.
+    const winnersSets = Array.from({ length: 6 }, (_, i) =>
+      makeSet({ round: i + 1, fullRoundText: `Winners Round ${i + 1}` }),
+    );
+    const losersSets = Array.from({ length: 10 }, (_, i) =>
+      makeSet({ round: -(i + 1), fullRoundText: `Losers Round ${i + 1}` }),
+    );
+
+    const layout = buildBracketLayout([...winnersSets, ...losersSets]);
+
+    expect(layout.winners).toHaveLength(3);
+    expect(layout.winners.map((c) => c.label)).toEqual([
+      "Winners Round 4",
+      "Winners Round 5",
+      "Winners Round 6",
+    ]);
+    expect(layout.losers).toHaveLength(5);
+    // Closest-to-zero (Round 1) still comes first among the kept columns.
+    expect(layout.losers.map((c) => c.label)).toEqual([
+      "Losers Round 6",
+      "Losers Round 7",
+      "Losers Round 8",
+      "Losers Round 9",
+      "Losers Round 10",
+    ]);
+  });
 });

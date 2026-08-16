@@ -9,6 +9,7 @@ import {
   getEventTopSeedEntrantIds,
   getPhaseGroupTopSeeds,
   getUpcomingSets,
+  isLateBracketRound,
   isNotableMatch,
   isSetOpenForBetting,
   SET_STATE,
@@ -138,18 +139,32 @@ export default async function MatchesPage({
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
 
-  // Pour le bracket Top 8 (voir plus bas) : getUpcomingSets ne renvoie que
-  // les matchs pas encore commencés/en cours (state 1/2) — un match Top 8
-  // terminé disparaîtrait donc de l'arbre au fur et à mesure du tournoi.
-  // On va chercher les matchs terminés en plus, mais seulement si une phase
-  // "Top 8" existe réellement pour cet event, pour ne pas alourdir chaque
-  // chargement de page sans raison.
-  const top8PhaseId = phases.find((p) => /^top 8$/i.test(p.name.trim()))?.id ?? null;
+  // Pour le bracket Top 8 (voir plus bas) : certains tournois scindent la
+  // toute fin du bracket en plusieurs phases start.gg distinctes (ex. tout
+  // le bracket 8 joueurs tagué "Top 24" côté start.gg, avec une phase
+  // "Top 8" séparée ne contenant que la toute fin — confirmé sur CEO 2026,
+  // où le bracket viewer start.gg affiche "Top 24" sur chaque match du
+  // Top 8). On regroupe donc tous les sets de TOUTES les phases dont le nom
+  // correspond à une étape tardive (voir isLateBracketRound, qui gère déjà
+  // "Top N"/"Grand Final" en généralisant sur le nom plutôt que sur une
+  // valeur figée), plutôt que de se limiter à la seule phase nommée
+  // exactement "Top 8".
+  //
+  // getUpcomingSets ne renvoie que les matchs pas encore commencés/en cours
+  // (state 1/2) — un match terminé disparaîtrait donc de l'arbre au fur et
+  // à mesure du tournoi sans aller chercher les matchs terminés en plus,
+  // seulement si au moins une de ces phases existe réellement pour cet
+  // event, pour ne pas alourdir chaque chargement de page sans raison.
+  const bracketPhaseIds = new Set(
+    phases.filter((p) => isLateBracketRound(p.name, 24)).map((p) => p.id),
+  );
   let completedTop8Sets: StartggSet[] = [];
-  if (top8PhaseId) {
+  if (bracketPhaseIds.size > 0) {
     try {
       const completedSets = await getCompletedSets(tournament.eventSlug);
-      completedTop8Sets = completedSets.filter((s) => s.phaseId === top8PhaseId);
+      completedTop8Sets = completedSets.filter(
+        (s) => s.phaseId != null && bracketPhaseIds.has(s.phaseId),
+      );
     } catch {
       // best-effort : le bracket se contente alors des matchs encore ouverts/en cours.
     }
@@ -206,21 +221,20 @@ export default async function MatchesPage({
     phase.roundGroups.some((g) => g.sets.length > 0),
   );
 
-  // Vue en arbre (façon bracket start.gg) sous la liste des rounds : ne
-  // s'affiche que pour la phase "Top 8" elle-même — un affichage similaire
-  // pour des phases plus larges (Top 24+, poules) serait illisible. Prend
-  // les matchs Top 8 ouverts/en cours (sets, filtré par phaseId) ET déjà
+  // Vue en arbre (façon bracket start.gg) sous la liste des rounds : prend
+  // les matchs ouverts/en cours (sets, filtrés par bracketPhaseIds) ET déjà
   // terminés (completedTop8Sets, récupéré séparément — voir plus haut) pour
   // garder l'arbre complet même une fois des matchs joués, plutôt que de les
   // voir disparaître au fur et à mesure. Indépendant de visiblePhaseSections
   // (qui masque les phases sans set "ouvert" — sans quoi l'arbre
-  // disparaîtrait lui aussi une fois tous les matchs Top 8 terminés).
-  const bracketLayout = top8PhaseId
-    ? buildBracketLayout([
-        ...sets.filter((s) => s.phaseId === top8PhaseId),
-        ...completedTop8Sets,
-      ])
-    : null;
+  // disparaîtrait lui aussi une fois tous les matchs terminés).
+  const bracketLayout =
+    bracketPhaseIds.size > 0
+      ? buildBracketLayout([
+          ...sets.filter((s) => s.phaseId != null && bracketPhaseIds.has(s.phaseId)),
+          ...completedTop8Sets,
+        ])
+      : null;
 
   return (
     <div className="flex gap-4 items-start">
