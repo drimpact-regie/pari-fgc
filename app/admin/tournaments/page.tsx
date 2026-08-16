@@ -9,6 +9,13 @@ import TwitchChannelEditor from "@/components/TwitchChannelEditor";
 import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
 import SyncResultsButton from "@/components/SyncResultsButton";
 import DeleteTournamentButton from "@/components/DeleteTournamentButton";
+import { computeChannelAuthorizationStatus, type ChannelAuthorizationStatus } from "@/lib/streamerAuthorization";
+
+const STATUS_BADGE: Record<ChannelAuthorizationStatus, { label: (botLogin: string | null) => string; color: string }> = {
+  current: { label: (botLogin) => `Autorisé (${botLogin ?? "bot"})`, color: "var(--win)" },
+  outdated: { label: () => "Ancien compte — à réautoriser", color: "var(--warn)" },
+  unknown: { label: () => "Statut inconnu", color: "var(--muted)" },
+};
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +32,20 @@ export default async function AdminTournamentsPage({
   const { twitchConnected, twitchError } = await searchParams;
   const tournaments = await listTournaments();
   const botToken = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
+
+  const channelLogins = Array.from(
+    new Set(
+      tournaments
+        .map((t) => t.twitchChannel?.toLowerCase())
+        .filter((c): c is string => Boolean(c)),
+    ),
+  );
+  const authorizations = channelLogins.length
+    ? await prisma.streamerChannelAuthorization.findMany({
+        where: { twitchLogin: { in: channelLogins } },
+      })
+    : [];
+  const authorizationByChannel = new Map(authorizations.map((a) => [a.twitchLogin, a]));
 
   return (
     <div className="flex flex-col gap-4">
@@ -67,12 +88,22 @@ export default async function AdminTournamentsPage({
               <th className="px-4 py-2 font-medium">Nom</th>
               <th className="px-4 py-2 font-medium">Slug start.gg</th>
               <th className="px-4 py-2 font-medium">Chaîne Twitch</th>
+              <th className="px-4 py-2 font-medium">Autorisation bot</th>
               <th className="px-4 py-2 font-medium">Chat betting</th>
               <th className="px-4 py-2 font-medium"></th>
             </tr>
           </thead>
           <tbody>
-            {tournaments.map((t) => (
+            {tournaments.map((t) => {
+              const authStatus = t.twitchChannel
+                ? computeChannelAuthorizationStatus(
+                    authorizationByChannel.get(t.twitchChannel.toLowerCase()) ?? null,
+                    botToken?.login ?? null,
+                  )
+                : "unknown";
+              const badge = STATUS_BADGE[authStatus];
+
+              return (
               <tr key={t.id} className="border-t" style={{ borderColor: "var(--border)" }}>
                 <td className="px-4 py-2 font-medium">{t.name}</td>
                 <td className="px-4 py-2 font-mono text-xs" style={{ color: "var(--muted)" }}>
@@ -80,6 +111,17 @@ export default async function AdminTournamentsPage({
                 </td>
                 <td className="px-4 py-2">
                   <TwitchChannelEditor tournamentId={t.id} initialChannel={t.twitchChannel} />
+                </td>
+                <td className="px-4 py-2">
+                  {t.twitchChannel ? (
+                    <span className="text-xs" style={{ color: badge.color }}>
+                      {badge.label(botToken?.login ?? null)}
+                    </span>
+                  ) : (
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>
+                      —
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2">
                   {t.twitchChannel ? (
@@ -102,7 +144,8 @@ export default async function AdminTournamentsPage({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

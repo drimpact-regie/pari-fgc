@@ -48,7 +48,10 @@ export const proxy = auth((req) => {
     // navigateur avec notre session — doit rester accessible sans login.
     // La sécurité de cette route est assurée par la vérification de
     // signature HMAC, pas par l'authentification applicative.
-    pathname.startsWith("/api/twitch/webhook");
+    pathname.startsWith("/api/twitch/webhook") ||
+    // Flux self-service public d'autorisation du bot par un streamer
+    // (scope channel:bot) — n'importe qui, sans compte sur ce site.
+    pathname.startsWith("/api/streamer/authorize");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

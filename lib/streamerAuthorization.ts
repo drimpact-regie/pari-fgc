@@ -1,0 +1,22 @@
+export type ChannelAuthorizationStatus = "current" | "outdated" | "unknown";
+
+/**
+ * Compare le compte qui jouait le rôle du bot au moment où une chaîne a
+ * complété le flux self-service (StreamerChannelAuthorization.botLoginAtGrant)
+ * au compte bot actuellement connecté (TwitchBotToken.login) :
+ * - "current" : autorisée pour le compte bot actif, rien à faire.
+ * - "outdated" : autorisée pour un ancien compte bot (ex. le compte
+ *   personnel de l'admin avant la bascule vers un compte de service dédié)
+ *   — à réautoriser.
+ * - "unknown" : aucune trace du flux self-service pour cette chaîne (ex.
+ *   autorisée via l'ancienne méthode "ajouter le bot modérateur", qui ne
+ *   laisse aucune trace côté site) ou bot pas encore connecté — impossible
+ *   de savoir sans vérifier manuellement.
+ */
+export function computeChannelAuthorizationStatus(
+  authorization: { botLoginAtGrant: string } | null,
+  currentBotLogin: string | null,
+): ChannelAuthorizationStatus {
+  if (!authorization || !currentBotLogin) return "unknown";
+  return authorization.botLoginAtGrant === currentBotLogin ? "current" : "outdated";
+}

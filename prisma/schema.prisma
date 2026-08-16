@@ -215,6 +215,25 @@ model TwitchBotToken {
   updatedAt    DateTime @updatedAt
 }
 
+/**
+ * Trace, par chaîne Twitch, le passage réussi du flux self-service public
+ * d'autorisation du bot (scope channel:bot — voir /streamer et
+ * /api/streamer/authorize). `botLoginAtGrant` capture quel compte Twitch
+ * jouait le rôle du bot (TwitchBotToken.login) au moment de l'octroi : si ce
+ * compte change ensuite (ex. bascule vers un compte de service dédié), on
+ * peut détecter les chaînes autorisées pour l'ancien compte mais pas
+ * encore pour le nouveau, sans quoi la migration serait invisible et
+ * silencieusement cassée.
+ */
+model StreamerChannelAuthorization {
+  id              String   @id @default(cuid())
+  twitchLogin     String   @unique
+  twitchUserId    String
+  botLoginAtGrant String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model Bet {
   id                    String    @id @default(cuid())
   userId                String
