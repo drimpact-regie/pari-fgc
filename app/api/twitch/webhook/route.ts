@@ -5,6 +5,8 @@ import { ensureUserByTwitchId } from "@/lib/users";
 import { sendChatMessage, verifyWebhookSignature } from "@/lib/twitch";
 import { DEFAULT_CHAT_BET_STAKE, SITE_URL } from "@/config/tournament";
 import { computeMatchOdds } from "@/lib/odds";
+import { computeStreakOdds } from "@/lib/invitationalOdds";
+import type { InvitationalCompetitor, InvitationalMatch } from "@prisma/client";
 import {
   getCompletedSets,
   getEventInfo,
@@ -170,6 +172,127 @@ async function placeChatBet(
       });
     })
     .catch(() => undefined); // solde insuffisant ou déjà parié sur ce match : on ignore silencieusement
+}
+
+/** Rapproche un nom tapé en chat (nom OU tag) du bon compétiteur, même tolérance que matchEntrant. */
+function matchInvitationalCompetitor(
+  target: string,
+  competitors: InvitationalCompetitor[],
+): InvitationalCompetitor | null {
+  const normalized = target.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const labelsFor = (c: InvitationalCompetitor) =>
+    [c.name, c.tag].filter((s): s is string => Boolean(s)).map((s) => s.toLowerCase());
+
+  const exact = competitors.find((c) => labelsFor(c).includes(normalized));
+  if (exact) return exact;
+
+  const startsWith = competitors.find((c) => labelsFor(c).some((l) => l.startsWith(normalized)));
+  if (startsWith) return startsWith;
+
+  const contains = competitors.filter((c) => labelsFor(c).some((l) => l.includes(normalized)));
+  return contains.length === 1 ? contains[0] : null;
+}
+
+/**
+ * Place un pari Invitational/Prestataire depuis le chat — même mise fixe et
+ * même règle de débit immédiat que le pari classique en chat (voir
+ * placeChatBet), mais sur invitationalExBalance (économie séparée, voir
+ * Partie 4 du prompt d'origine) et avec la cote dynamique par série de
+ * victoires (lib/invitationalOdds.ts) plutôt que par seed.
+ */
+async function placeInvitationalChatBet(
+  match: InvitationalMatch & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor },
+  chosen: InvitationalCompetitor,
+  chatter: { id: string; login: string; displayName: string },
+) {
+  const bettor = await ensureChatBettor(chatter);
+  const { oddsA, oddsB } = computeStreakOdds(match.competitorA.currentStreak, match.competitorB.currentStreak);
+  const odds = chosen.id === match.competitorA.id ? oddsA : oddsB;
+
+  await prisma
+    .$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: bettor.id },
+        select: { invitationalExBalance: true },
+      });
+      if (!user || user.invitationalExBalance < DEFAULT_CHAT_BET_STAKE) {
+        throw new Error("insufficient_balance");
+      }
+
+      await tx.user.update({
+        where: { id: bettor.id },
+        data: { invitationalExBalance: { decrement: DEFAULT_CHAT_BET_STAKE } },
+      });
+
+      return tx.invitationalBet.create({
+        data: {
+          userId: bettor.id,
+          matchId: match.id,
+          eventId: match.eventId,
+          predictedCompetitorId: chosen.id,
+          predictedCompetitorName: chosen.name,
+          stake: DEFAULT_CHAT_BET_STAKE,
+          odds,
+        },
+      });
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * !bet <joueur> pour un event Invitational/Prestataire : cherche par défaut
+ * parmi tous les matchs actuellement OPEN de cet event (statut piloté
+ * manuellement par l'admin, pas de notion de "state" start.gg ici), le match
+ * marqué "actif" par l'admin (activeChatMatchId) étant prioritaire pour
+ * désambiguïser — même logique que handleBetCommand pour les tournois
+ * classiques.
+ */
+async function handleInvitationalBetCommand(
+  target: string,
+  event: { id: string; activeChatMatchId: string | null },
+  chatter: { id: string; login: string; displayName: string },
+) {
+  if (event.activeChatMatchId) {
+    const activeMatch = await prisma.invitationalMatch.findUnique({
+      where: { id: event.activeChatMatchId },
+      include: { competitorA: true, competitorB: true },
+    });
+    if (activeMatch?.status === "OPEN" && activeMatch.competitorA && activeMatch.competitorB) {
+      const chosen = matchInvitationalCompetitor(target, [activeMatch.competitorA, activeMatch.competitorB]);
+      if (chosen) {
+        await placeInvitationalChatBet(
+          { ...activeMatch, competitorA: activeMatch.competitorA, competitorB: activeMatch.competitorB },
+          chosen,
+          chatter,
+        );
+        return;
+      }
+    }
+  }
+
+  const openMatches = await prisma.invitationalMatch.findMany({
+    where: { eventId: event.id, status: "OPEN" },
+    include: { competitorA: true, competitorB: true },
+  });
+
+  const candidates = openMatches
+    .filter(
+      (m): m is typeof m & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor } =>
+        m.competitorA !== null && m.competitorB !== null,
+    )
+    .map((m) => {
+      const chosen = matchInvitationalCompetitor(target, [m.competitorA, m.competitorB]);
+      return chosen ? { match: m, chosen } : null;
+    })
+    .filter((c): c is { match: (typeof openMatches)[number] & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor }; chosen: InvitationalCompetitor } => c !== null);
+
+  // Comme pour les tournois classiques : le nom doit désigner un compétiteur
+  // dans exactement un match ouvert, sinon c'est ambigu (ou introuvable).
+  if (candidates.length !== 1) return;
+
+  await placeInvitationalChatBet(candidates[0].match, candidates[0].chosen, chatter);
 }
 
 /**
@@ -523,6 +646,15 @@ export async function POST(request: Request) {
   if (tournament) {
     await checkAndAnnounceResults(tournament, broadcasterId).catch(() => undefined);
   }
+  // Un event Invitational/Prestataire réutilise le même mapping
+  // chaîne Twitch <-> "en cours" que les tournois classiques (voir Partie 5
+  // du prompt d'origine) — cherché seulement si aucun tournoi classique ne
+  // correspond déjà à cette chaîne.
+  const invitationalEvent = !tournament
+    ? await prisma.invitationalEvent.findFirst({
+        where: { twitchChannel: event.broadcaster_user_login, status: "ACTIVE" },
+      })
+    : null;
 
   const betTarget = extractCommandTarget(text, BET_COMMANDS);
   const top8Target = betTarget === null ? extractCommandTarget(text, TOP8_COMMANDS) : null;
@@ -545,18 +677,23 @@ export async function POST(request: Request) {
     isTop8Invocation ||
     (betTarget !== null && (isMvcCommand(betTarget) || isResetCommand(betTarget)));
 
-  if (!tournament) {
-    if (isParrySubCommand) {
-      await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
-    }
-    return NextResponse.json({ ok: true });
-  }
-
   const chatter = {
     id: event.chatter_user_id,
     login: event.chatter_user_login,
     displayName: event.chatter_user_name,
   };
+
+  if (!tournament) {
+    // Le Pari du Parry (top 8/mvc/reset) n'existe pas pour les events
+    // Invitational/Prestataire (pas de bracket start.gg) — seul le pari
+    // classique "!bet <joueur>" s'y applique.
+    if (invitationalEvent && betTarget !== null && !isParrySubCommand) {
+      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter);
+    } else if (isParrySubCommand) {
+      await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   if (betTarget !== null && isMvcCommand(betTarget)) {
     await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);

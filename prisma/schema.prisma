@@ -94,12 +94,18 @@ model User {
   // cette valeur par défaut. Comptes déjà existants au moment de
   // l'introduction d'Ex : voir /api/admin/migrate-ex-balances (lib/exMigration.ts).
   exBalance    Int      @default(10000)
+  // Solde Ex séparé pour les events "Invitational / Prestataire" (voir
+  // InvitationalBet) — économie totalement indépendante d'exBalance et du
+  // classement LeaderBet classique, sur demande explicite (events sans
+  // rapport avec les tournois start.gg suivis).
+  invitationalExBalance Int @default(10000)
   createdAt    DateTime @default(now())
   bets         Bet[]
   topEightPicks TopEightPick[]
   mvcBets        MvcBet[]
   bracketResetBets BracketResetBet[]
   exAdjustments  ExAdjustment[]
+  invitationalBets InvitationalBet[]
 }
 
 /**
@@ -278,4 +284,152 @@ model Bet {
 
   @@unique([userId, setId])
   @@index([setId])
+}
+
+// --- Invitational / Prestataire ---------------------------------------
+// Events sans existence côté start.gg (showmatchs, weeklies, exhibitions
+// avec joueurs invités) : pas de bracket API, pas de webhook de fin de
+// match, pas de seeding automatique. Structure importée depuis un fichier
+// Excel/CSV (voir lib/invitationalImport.ts), gérée au jour le jour depuis
+// l'admin — aucune détection automatique de résultat, tout est piloté
+// manuellement. Économie (InvitationalBet, User.invitationalExBalance) et
+// classement totalement séparés des tournois classiques.
+
+enum InvitationalFormat {
+  BRACKET_SINGLE
+  BRACKET_DOUBLE
+  ROUND_ROBIN
+  SWISS
+  POOLS
+  LIST
+}
+
+enum InvitationalEventStatus {
+  ACTIVE
+  PAST
+}
+
+enum InvitationalMatchStatus {
+  NOT_OPEN
+  OPEN
+  CLOSED
+  COMPLETED
+}
+
+/**
+ * Un event Invitational/Prestataire. Plusieurs peuvent coexister en
+ * parallèle ou se succéder dans le temps, chacun totalement indépendant
+ * (ses propres compétiteurs, matchs, cotes). `format` documente le format
+ * de compétition déclaré par le fichier d'import (voir
+ * lib/invitationalImport.ts) — n'affecte pas la structure de stockage des
+ * matchs (uniforme quel que soit le format, voir InvitationalMatch), sert
+ * surtout à l'affichage/la validation à l'import.
+ */
+model InvitationalEvent {
+  id        String                   @id @default(cuid())
+  name      String
+  eventDate DateTime
+  format    InvitationalFormat
+  status    InvitationalEventStatus @default(ACTIVE)
+  // Même mapping chaîne Twitch <-> event "en cours" que Tournament, pour
+  // réutiliser l'infrastructure de pari chat existante (!bet, résolution)
+  // plutôt que la dupliquer.
+  twitchChannel     String?
+  activeChatMatchId String?
+  createdAt         DateTime @default(now())
+
+  competitors InvitationalCompetitor[]
+  matches     InvitationalMatch[]
+  bets        InvitationalBet[]
+}
+
+/**
+ * Un joueur invité, toujours individuel (pas de véritable équipe à
+ * plusieurs joueurs) même s'il concourt sous un tag/sponsor affiché à côté
+ * de son nom (ex. "RZA | Sonicfox"). Scopé à un seul event : pas d'identité
+ * partagée entre events invitational (contrairement aux joueurs start.gg,
+ * identifiés par playerId côté tournois classiques) — la série de
+ * victoires (currentStreak) doit repartir de zéro à chaque nouvel event.
+ */
+model InvitationalCompetitor {
+  id          String   @id @default(cuid())
+  eventId     String
+  event       InvitationalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name        String
+  tag         String?
+  // Code pays ISO 3166-1 alpha-2 (ex. "US", "FR"), pour afficher un drapeau.
+  countryCode String?
+  // Victoires consécutives en cours dans cet event (0 = aucune série,
+  // remis à 0 à chaque défaite) — seule donnée d'état nécessaire pour
+  // calculer la cote du prochain match de ce joueur, voir
+  // lib/invitationalOdds.ts.
+  currentStreak Int    @default(0)
+  createdAt   DateTime @default(now())
+
+  matchesAsA InvitationalMatch[] @relation("InvitationalMatchCompetitorA")
+  matchesAsB InvitationalMatch[] @relation("InvitationalMatchCompetitorB")
+  wonMatches InvitationalMatch[] @relation("InvitationalMatchWinner")
+  bets       InvitationalBet[]
+
+  @@index([eventId])
+}
+
+/**
+ * Un match d'un event invitational. `groupLabel`/`orderIndex` portent le
+ * regroupement/l'ordre d'affichage quel que soit le format d'origine
+ * (round de bracket, poule, round de swiss, ou null pour une simple liste
+ * de matchs) — voir lib/invitationalImport.ts. Aucune détection
+ * automatique de fin de match n'existe ici : `status`, `winnerId` et les
+ * scores sont 100% pilotés par un admin (voir /admin/invitational).
+ */
+model InvitationalMatch {
+  id            String   @id @default(cuid())
+  eventId       String
+  event         InvitationalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  groupLabel    String?
+  orderIndex    Int
+  competitorAId String?
+  competitorA   InvitationalCompetitor? @relation("InvitationalMatchCompetitorA", fields: [competitorAId], references: [id])
+  competitorBId String?
+  competitorB   InvitationalCompetitor? @relation("InvitationalMatchCompetitorB", fields: [competitorBId], references: [id])
+  status        InvitationalMatchStatus @default(NOT_OPEN)
+  winnerId      String?
+  winner        InvitationalCompetitor? @relation("InvitationalMatchWinner", fields: [winnerId], references: [id])
+  scoreA        Int?
+  scoreB        Int?
+  createdAt     DateTime @default(now())
+  resolvedAt    DateTime?
+
+  bets InvitationalBet[]
+
+  @@index([eventId])
+}
+
+/**
+ * Pari sur un match invitational — mêmes garanties que Bet (mise et cote
+ * figées au moment du pari, débit immédiat du solde) mais sur l'économie
+ * séparée (User.invitationalExBalance), jamais sur exBalance ni le
+ * classement LeaderBet classique.
+ */
+model InvitationalBet {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchId                 String
+  match                   InvitationalMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  eventId                 String
+  event                   InvitationalEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  predictedCompetitorId   String
+  predictedCompetitor     InvitationalCompetitor @relation(fields: [predictedCompetitorId], references: [id])
+  predictedCompetitorName String
+  stake                   Int
+  odds                    Float
+  status                  BetStatus @default(PENDING)
+  pointsAwarded           Int       @default(0)
+  createdAt               DateTime  @default(now())
+  resolvedAt              DateTime?
+
+  @@unique([userId, matchId])
+  @@index([matchId])
+  @@index([eventId])
 }

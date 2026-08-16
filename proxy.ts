@@ -54,7 +54,12 @@ export const proxy = auth((req) => {
     pathname.startsWith("/api/streamer/authorize") ||
     // Appelé par Vercel Cron, sans session navigateur — sécurité assurée par
     // le secret CRON_SECRET vérifié dans la route elle-même.
-    pathname.startsWith("/api/cron");
+    pathname.startsWith("/api/cron") ||
+    // Endpoint public en lecture seule exposant l'état d'un event
+    // Invitational/Prestataire, en anticipation d'un futur overlay stream
+    // (OBS browser source) — ne renvoie que des données déjà destinées à
+    // être affichées à l'écran, jamais de données de compte/pari.
+    pathname.startsWith("/api/invitational/events/");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);
