@@ -3,7 +3,7 @@ import type { Tournament } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeMatchBetPayout } from "@/lib/odds";
 import {
-  getSetResult,
+  getCompletedSets,
   isNotableMatch,
   isPreviewSetId,
   SET_STATE,
@@ -100,16 +100,23 @@ export interface ResolveAllPendingBetsResult {
  * à la résolution) et résout ceux dont le set est terminé côté start.gg, ou
  * annule ceux placés sur un match "prévisionnel" (voir cancelBetsForPreviewSet
  * — ces id ne sont jamais interrogés côté start.gg, ça ne mènerait à rien).
+ *
+ * Interroge start.gg au maximum une fois par event distinct concerné (via
+ * getCompletedSets, une requête paginée couvrant tous les sets terminés d'un
+ * coup), plutôt qu'une requête getSetResult séparée par pari en attente —
+ * avec beaucoup de paris en attente en simultané (tournoi actif, chat qui
+ * déclenche ce passage toutes les 30s), l'ancienne approche pouvait
+ * facilement dépasser le rate-limit de l'API start.gg (429).
+ *
  * Point de résolution unique et idempotent, appelé aussi bien par l'action
  * admin manuelle (/api/admin/sync-results) que par le déclenchement
  * automatique côté webhook Twitch (voir app/api/twitch/webhook/route.ts),
  * pour ne pas dépendre d'un clic admin à chaque match terminé.
  */
 export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResult> {
-  const pendingSetIds = await prisma.bet.findMany({
+  const pendingBets = await prisma.bet.findMany({
     where: { status: "PENDING" },
-    distinct: ["setId"],
-    select: { setId: true },
+    select: { setId: true, eventSlug: true },
   });
 
   let resolvedSets = 0;
@@ -117,28 +124,43 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
   let cancelledBets = 0;
   const errors: string[] = [];
 
-  for (const { setId } of pendingSetIds) {
-    if (isPreviewSetId(setId)) {
-      cancelledBets += await cancelBetsForPreviewSet(setId);
-      continue;
-    }
+  const previewSetIds = new Set(
+    pendingBets.filter((b) => isPreviewSetId(b.setId)).map((b) => b.setId),
+  );
+  for (const setId of previewSetIds) {
+    cancelledBets += await cancelBetsForPreviewSet(setId);
+  }
 
-    let set: StartggSet | null;
+  const pendingSetIdsByEventSlug = new Map<string, Set<string>>();
+  for (const bet of pendingBets) {
+    if (isPreviewSetId(bet.setId)) continue;
+    if (!pendingSetIdsByEventSlug.has(bet.eventSlug)) {
+      pendingSetIdsByEventSlug.set(bet.eventSlug, new Set());
+    }
+    pendingSetIdsByEventSlug.get(bet.eventSlug)!.add(bet.setId);
+  }
+
+  for (const [eventSlug, setIds] of pendingSetIdsByEventSlug) {
+    let completedSets: StartggSet[];
     try {
-      set = await getSetResult(setId);
+      completedSets = await getCompletedSets(eventSlug);
     } catch (err) {
       errors.push(
-        err instanceof StartggApiError ? `${setId}: ${err.message}` : `${setId}: erreur inconnue`,
+        err instanceof StartggApiError ? `${eventSlug}: ${err.message}` : `${eventSlug}: erreur inconnue`,
       );
       continue;
     }
 
-    if (!set) continue;
+    const completedById = new Map(completedSets.map((set) => [set.id, set]));
+    for (const setId of setIds) {
+      const set = completedById.get(setId);
+      if (!set) continue; // pas encore terminé côté start.gg
 
-    const resolvedCount = await resolveSetBets(set);
-    if (resolvedCount > 0) {
-      resolvedSets += 1;
-      resolvedBets += resolvedCount;
+      const resolvedCount = await resolveSetBets(set);
+      if (resolvedCount > 0) {
+        resolvedSets += 1;
+        resolvedBets += resolvedCount;
+      }
     }
   }
 
