@@ -4,6 +4,7 @@ const ADMIN_LINKS = [
   { href: "/admin/tournaments", label: "Tournois" },
   { href: "/admin/characters", label: "Personnages" },
   { href: "/admin/parry", label: "Le Pari du Parry" },
+  { href: "/admin/ex", label: "Soldes Ex" },
 ] as const;
 
 export default function AdminMenu() {

@@ -5,18 +5,21 @@ interface Entrant {
   id: string;
   name: string;
   seedNum: number | null;
+  odds: number;
 }
 
 interface ExistingBet {
-  predictedEntrantName: string;
-  predictedEntrantScore: number | null;
-  predictedOpponentScore: number | null;
+  entrantName: string;
+  stake: number;
+  odds: number;
+  status: "PENDING" | "WON" | "LOST";
+  payout: number;
 }
 
 export interface OpenMatchEntry {
   set: StartggSet;
   entrants: Entrant[];
-  bet: ExistingBet | undefined;
+  bet: ExistingBet | null;
 }
 
 /**
@@ -30,9 +33,11 @@ export interface OpenMatchEntry {
 export default function OpenMatchesSidebar({
   tournamentId,
   entries,
+  exBalance,
 }: {
   tournamentId: string;
   entries: OpenMatchEntry[];
+  exBalance: number;
 }) {
   return (
     <aside className="hidden lg:block w-72 shrink-0">
@@ -63,7 +68,11 @@ export default function OpenMatchesSidebar({
               >
                 {set.fullRoundText}
               </span>
-              <a href={`#set-${set.id}`} className="text-xs underline whitespace-nowrap" style={{ color: "var(--accent)" }}>
+              <a
+                href={`#set-${set.id}`}
+                className="text-xs underline whitespace-nowrap"
+                style={{ color: "var(--accent)" }}
+              >
                 Voir le match
               </a>
             </div>
@@ -71,11 +80,9 @@ export default function OpenMatchesSidebar({
               tournamentId={tournamentId}
               setId={set.id}
               entrants={entrants}
-              totalGames={set.totalGames}
               locked={false}
-              existingBetEntrantName={bet?.predictedEntrantName ?? null}
-              existingBetEntrantScore={bet?.predictedEntrantScore ?? null}
-              existingBetOpponentScore={bet?.predictedOpponentScore ?? null}
+              exBalance={exBalance}
+              existingBet={bet}
             />
           </div>
         ))}

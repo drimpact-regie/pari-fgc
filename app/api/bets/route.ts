@@ -5,16 +5,16 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
 import { getSetResult, SET_STATE, StartggApiError } from "@/lib/startgg";
+import { computeMatchOdds } from "@/lib/odds";
 
 const betSchema = z.object({
   tournamentId: z.string().min(1),
   setId: z.string().min(1),
   entrantId: z.string().min(1),
-  // Score exact optionnel (bonus de points) : manches gagnées par le
-  // joueur pronostiqué vainqueur / par son adversaire.
-  predictedEntrantScore: z.number().int().min(0).optional(),
-  predictedOpponentScore: z.number().int().min(0).optional(),
+  stake: z.number().int("La mise doit être un nombre entier.").positive("La mise doit être positive."),
 });
+
+class InsufficientBalanceError extends Error {}
 
 export async function GET() {
   const session = await auth();
@@ -45,8 +45,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { tournamentId, setId, entrantId, predictedEntrantScore, predictedOpponentScore } =
-    parsed.data;
+  const { tournamentId, setId, entrantId, stake } = parsed.data;
 
   const tournament = await getTournament(tournamentId);
   if (!tournament) {
@@ -83,47 +82,54 @@ export async function POST(request: Request) {
     );
   }
 
-  let validatedEntrantScore: number | null = null;
-  let validatedOpponentScore: number | null = null;
-  if (predictedEntrantScore !== undefined || predictedOpponentScore !== undefined) {
-    if (predictedEntrantScore === undefined || predictedOpponentScore === undefined) {
-      return NextResponse.json({ error: "Score exact incomplet." }, { status: 400 });
-    }
-    if (!set.totalGames) {
-      return NextResponse.json(
-        { error: "Format du match inconnu, score exact indisponible." },
-        { status: 400 },
-      );
-    }
-    const majority = Math.ceil(set.totalGames / 2);
-    if (predictedEntrantScore !== majority || predictedOpponentScore >= majority) {
-      return NextResponse.json(
-        { error: "Score exact invalide pour ce format de match." },
-        { status: 400 },
-      );
-    }
-    validatedEntrantScore = predictedEntrantScore;
-    validatedOpponentScore = predictedOpponentScore;
-  }
+  // Cote figée au moment du pari : même si les seeds venaient à changer
+  // d'ici la résolution, le gain reste calculé sur ce que l'utilisateur a
+  // vu au moment de miser.
+  const { oddsA: odds } = computeMatchOdds(
+    chosenSlot?.seedNum ?? null,
+    opponentSlot?.seedNum ?? null,
+  );
 
   try {
-    const bet = await prisma.bet.create({
-      data: {
-        userId: session.user.id,
-        setId,
-        eventSlug: tournament.eventSlug,
-        roundText: set.fullRoundText ?? "",
-        predictedEntrantId: chosenEntrant.id,
-        predictedEntrantName: chosenEntrant.name,
-        predictedEntrantScore: validatedEntrantScore,
-        predictedOpponentScore: validatedOpponentScore,
-        predictedEntrantSeed: chosenSlot?.seedNum ?? null,
-        opponentSeed: opponentSlot?.seedNum ?? null,
-        totalGames: set.totalGames,
-      },
+    const bet = await prisma.$transaction(async (tx) => {
+      // Vérifié et débité dans la même transaction que la création du pari,
+      // pour éviter qu'une double soumission concurrente ne fasse passer
+      // le solde en négatif entre la vérification et le débit.
+      const user = await tx.user.findUnique({
+        where: { id: session.user.id },
+        select: { exBalance: true },
+      });
+      if (!user || user.exBalance < stake) {
+        throw new InsufficientBalanceError();
+      }
+
+      await tx.user.update({
+        where: { id: session.user.id },
+        data: { exBalance: { decrement: stake } },
+      });
+
+      return tx.bet.create({
+        data: {
+          userId: session.user.id,
+          setId,
+          eventSlug: tournament.eventSlug,
+          roundText: set.fullRoundText ?? "",
+          predictedEntrantId: chosenEntrant.id,
+          predictedEntrantName: chosenEntrant.name,
+          predictedEntrantSeed: chosenSlot?.seedNum ?? null,
+          opponentSeed: opponentSlot?.seedNum ?? null,
+          totalGames: set.totalGames,
+          stake,
+          odds,
+        },
+      });
     });
+
     return NextResponse.json({ bet });
   } catch (err: unknown) {
+    if (err instanceof InsufficientBalanceError) {
+      return NextResponse.json({ error: "Solde Ex insuffisant pour cette mise." }, { status: 400 });
+    }
     if (
       err &&
       typeof err === "object" &&

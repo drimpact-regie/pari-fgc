@@ -5,6 +5,12 @@ import { auth } from "@/lib/auth";
 const APEX_HOST = "impactobet.fr";
 const CANONICAL_HOST = "www.impactobet.fr";
 
+// Publiques quel que soit l'état de connexion : ni redirigées vers /login,
+// ni redirigées vers "/" si déjà connecté (page.tsx gère lui-même la
+// redirection des utilisateurs connectés qui visitent "/").
+const PUBLIC_ALWAYS_PATHS = ["/", "/streamer"];
+// Publiques seulement si déconnecté : redirigées vers "/" une fois connecté
+// (pas besoin de revoir ces formulaires après authentification).
 const PUBLIC_PATHS = ["/login", "/register"];
 
 export const proxy = auth((req) => {
@@ -34,6 +40,7 @@ export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
 
   const isPublic =
+    PUBLIC_ALWAYS_PATHS.includes(pathname) ||
     PUBLIC_PATHS.includes(pathname) ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/register") ||

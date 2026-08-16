@@ -41,7 +41,7 @@ export default function SyncResultsButton() {
           <p className="text-sm font-semibold">Résoudre les paris</p>
           <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
             Interroge start.gg pour les matchs pariés terminés (tous tournois) et attribue les
-            points.
+            Ex.
           </p>
         </div>
         <button type="button" className="btn btn-primary text-xs" disabled={loading} onClick={handleClick}>

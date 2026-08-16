@@ -11,6 +11,9 @@
   --accent-strong: #4f6dd9;
   --win: #3fbf7f;
   --lose: #e2586b;
+  /* Monnaie virtuelle "Ex" — doré pour la distinguer visuellement partout
+     où un montant est affiché (solde, mise, gain). */
+  --gold: #d4af37;
 }
 
 @theme inline {

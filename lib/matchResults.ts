@@ -1,42 +1,48 @@
 import type { Tournament } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { computeBetPoints } from "@/lib/scoring";
+import { computeMatchBetPayout } from "@/lib/odds";
 import { isLateBracketRound, SET_STATE, type StartggSet } from "@/lib/startgg";
 
 /**
  * Résout tous les paris classiques PENDING d'un set terminé (WON/LOST +
- * points). Idempotent : n'agit que sur les paris encore PENDING, donc sans
- * effet si déjà résolu par un autre passage. Renvoie le nombre de paris
- * résolus.
+ * gain en Ex crédité au solde du parieur, dans la même transaction que la
+ * mise à jour du statut). Idempotent : n'agit que sur les paris encore
+ * PENDING, donc sans effet si déjà résolu par un autre passage. La mise
+ * elle-même a déjà été débitée au moment du pari (voir /api/bets) — ici on
+ * ne fait que créditer le gain total (mise × cote) en cas de victoire.
+ *
+ * Paris légués d'avant l'introduction de la mise/cote (stake/odds encore
+ * nuls) : marqués WON/LOST sans paiement, faute de mise réellement
+ * collectée à rembourser.
  */
 export async function resolveSetBets(set: StartggSet): Promise<number> {
   if (set.state !== SET_STATE.COMPLETED || set.winnerId == null) return 0;
 
   const winnerId = String(set.winnerId);
-  const winnerSlot = set.slots.find((slot) => slot.entrant?.id === winnerId);
-  const loserSlot = set.slots.find((slot) => slot.entrant && slot.entrant.id !== winnerId);
-  const actualWinnerScore = winnerSlot?.score ?? null;
-  const actualLoserScore = loserSlot?.score ?? null;
-
   const bets = await prisma.bet.findMany({ where: { setId: set.id, status: "PENDING" } });
 
   for (const bet of bets) {
     const won = bet.predictedEntrantId === winnerId;
-    const points = computeBetPoints({
-      won,
-      predictedEntrantSeed: bet.predictedEntrantSeed,
-      opponentSeed: bet.opponentSeed,
-      totalGames: bet.totalGames,
-      predictedEntrantScore: bet.predictedEntrantScore,
-      predictedOpponentScore: bet.predictedOpponentScore,
-      actualWinnerScore,
-      actualLoserScore,
-    });
-    await prisma.bet.update({
-      where: { id: bet.id },
-      data: { status: won ? "WON" : "LOST", pointsAwarded: points, resolvedAt: new Date() },
-    });
+    const payout =
+      bet.stake != null && bet.odds != null
+        ? computeMatchBetPayout({ won, stake: bet.stake, odds: bet.odds })
+        : 0;
+
+    await prisma.$transaction([
+      prisma.bet.update({
+        where: { id: bet.id },
+        data: { status: won ? "WON" : "LOST", pointsAwarded: payout, resolvedAt: new Date() },
+      }),
+      ...(payout > 0
+        ? [
+            prisma.user.update({
+              where: { id: bet.userId },
+              data: { exBalance: { increment: payout } },
+            }),
+          ]
+        : []),
+    ]);
   }
 
   return bets.length;

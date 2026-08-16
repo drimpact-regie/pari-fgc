@@ -3,69 +3,80 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { computeMatchBetPayout } from "@/lib/odds";
+
 interface Entrant {
   id: string;
   name: string;
   seedNum: number | null;
+  /** Cote décimale de cet entrant, calculée depuis les seeds (lib/odds.ts). */
+  odds: number;
+}
+
+interface ExistingBet {
+  entrantName: string;
+  stake: number;
+  odds: number;
+  status: "PENDING" | "WON" | "LOST";
+  /** Gain total crédité si status === "WON" (0 sinon). */
+  payout: number;
 }
 
 interface Props {
   tournamentId: string;
   setId: string;
   entrants: Entrant[];
-  totalGames: number | null;
   locked: boolean;
-  existingBetEntrantName: string | null;
-  existingBetEntrantScore: number | null;
-  existingBetOpponentScore: number | null;
+  /** Solde Ex courant de l'utilisateur, pour valider la mise côté client. */
+  exBalance: number;
+  existingBet: ExistingBet | null;
 }
+
+const STATUS_LABEL: Record<ExistingBet["status"], string> = {
+  PENDING: "en attente",
+  WON: "gagné",
+  LOST: "perdu",
+};
 
 export default function BetCard({
   tournamentId,
   setId,
   entrants,
-  totalGames,
   locked,
-  existingBetEntrantName,
-  existingBetEntrantScore,
-  existingBetOpponentScore,
+  exBalance,
+  existingBet,
 }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(null);
-  const [selectedScore, setSelectedScore] = useState<{ w: number; l: number } | null>(null);
+  const [stake, setStake] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const alreadyBet = existingBetEntrantName !== null;
-  const disabled = locked || alreadyBet || entrants.length !== 2;
+  const disabled = locked || existingBet !== null || entrants.length !== 2;
 
-  // Manches nécessaires pour gagner ce set (2 en Bo3, 3 en Bo5, ...).
-  const majority = totalGames ? Math.ceil(totalGames / 2) : null;
-  const scoreOptions = majority
-    ? Array.from({ length: majority }, (_, loserGames) => ({ w: majority, l: loserGames }))
-    : [];
+  const stakeNum = Number(stake);
+  const stakeValid = stake.trim() !== "" && Number.isInteger(stakeNum) && stakeNum > 0;
+  const selectedEntrant = entrants.find((e) => e.id === selected) ?? null;
+  const exceedsBalance = stakeValid && stakeNum > exBalance;
+  const potentialPayout =
+    selectedEntrant && stakeValid
+      ? computeMatchBetPayout({ won: true, stake: stakeNum, odds: selectedEntrant.odds })
+      : null;
 
   function selectEntrant(id: string) {
     setSelected(id);
-    setSelectedScore(null);
+    setError(null);
   }
 
   async function placeBet() {
-    if (!selected) return;
+    if (!selected || !stakeValid) return;
     setSubmitting(true);
     setError(null);
 
     const res = await fetch("/api/bets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tournamentId,
-        setId,
-        entrantId: selected,
-        ...(selectedScore
-          ? { predictedEntrantScore: selectedScore.w, predictedOpponentScore: selectedScore.l }
-          : {}),
-      }),
+      body: JSON.stringify({ tournamentId, setId, entrantId: selected, stake: stakeNum }),
     });
 
     setSubmitting(false);
@@ -81,17 +92,25 @@ export default function BetCard({
 
   return (
     <div className="card p-4 flex flex-col gap-3">
-      {(alreadyBet || (locked && !alreadyBet)) && (
+      {(existingBet || (locked && !existingBet)) && (
         <div className="flex items-center justify-end">
-          {alreadyBet && (
-            <span className="text-xs" style={{ color: "var(--accent)" }}>
-              Pari placé : {existingBetEntrantName}
-              {existingBetEntrantScore != null && existingBetOpponentScore != null
-                ? ` (${existingBetEntrantScore}-${existingBetOpponentScore})`
-                : ""}
+          {existingBet && (
+            <span className="text-xs text-right" style={{ color: "var(--gold)" }}>
+              Pari placé : {existingBet.entrantName} — {existingBet.stake} Ex à{" "}
+              {existingBet.odds.toFixed(2)}
+              {existingBet.status === "PENDING" && (
+                <> · gain potentiel {Math.round(existingBet.stake * existingBet.odds)} Ex</>
+              )}
+              {existingBet.status !== "PENDING" && (
+                <>
+                  {" "}
+                  · {STATUS_LABEL[existingBet.status]}
+                  {existingBet.status === "WON" ? ` (+${existingBet.payout} Ex)` : ""}
+                </>
+              )}
             </span>
           )}
-          {locked && !alreadyBet && (
+          {locked && !existingBet && (
             <span className="text-xs" style={{ color: "var(--muted)" }}>
               Paris fermés
             </span>
@@ -105,20 +124,16 @@ export default function BetCard({
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {entrants.map((entrant, i) => {
-            const other = entrants[1 - i];
-            const isUnderdog =
-              entrant.seedNum != null && other.seedNum != null && entrant.seedNum > other.seedNum;
-
-            return (
-              <label
-                key={entrant.id}
-                className="flex items-center gap-2 text-sm px-3 py-2 rounded-md"
-                style={{
-                  background: "var(--surface-alt)",
-                  opacity: disabled && selected !== entrant.id ? 0.6 : 1,
-                }}
-              >
+          {entrants.map((entrant) => (
+            <label
+              key={entrant.id}
+              className="flex items-center justify-between gap-2 text-sm px-3 py-2 rounded-md"
+              style={{
+                background: "var(--surface-alt)",
+                opacity: disabled && selected !== entrant.id ? 0.6 : 1,
+              }}
+            >
+              <span className="flex items-center gap-2">
                 <input
                   type="radio"
                   name={`set-${setId}`}
@@ -128,41 +143,41 @@ export default function BetCard({
                   onChange={() => selectEntrant(entrant.id)}
                 />
                 {entrant.name}
-                {isUnderdog && (
-                  <span className="text-xs" style={{ color: "var(--accent)" }}>
-                    outsider · bonus points
-                  </span>
-                )}
-              </label>
-            );
-          })}
+              </span>
+              <span className="text-xs font-semibold" style={{ color: "var(--accent)" }}>
+                {entrant.odds.toFixed(2)}
+              </span>
+            </label>
+          ))}
         </div>
       )}
 
-      {!disabled && selected && scoreOptions.length > 0 && (
+      {!disabled && selected && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs" style={{ color: "var(--muted)" }}>
-            Score exact (optionnel, bonus de points) :
-          </span>
-          <div className="flex gap-2 flex-wrap">
-            {scoreOptions.map((opt) => {
-              const active = selectedScore?.w === opt.w && selectedScore?.l === opt.l;
-              return (
-                <button
-                  key={`${opt.w}-${opt.l}`}
-                  type="button"
-                  onClick={() => setSelectedScore(active ? null : opt)}
-                  className="text-xs px-2 py-1 rounded"
-                  style={{
-                    background: active ? "var(--accent)" : "var(--surface-alt)",
-                    color: active ? "#0b0d12" : "var(--muted)",
-                  }}
-                >
-                  {opt.w}-{opt.l}
-                </button>
-              );
-            })}
-          </div>
+          <label className="text-xs" style={{ color: "var(--muted)" }}>
+            Mise (
+            <span style={{ color: "var(--gold)" }}>{exBalance} Ex</span> disponibles)
+          </label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            className="input"
+            value={stake}
+            onChange={(e) => setStake(e.target.value)}
+            placeholder="0"
+          />
+          {exceedsBalance && (
+            <span className="text-xs" style={{ color: "var(--lose)" }}>
+              Solde Ex insuffisant.
+            </span>
+          )}
+          {potentialPayout !== null && !exceedsBalance && (
+            <span className="text-xs" style={{ color: "var(--win)" }}>
+              Gain potentiel : <span style={{ color: "var(--gold)" }}>{potentialPayout} Ex</span>
+            </span>
+          )}
         </div>
       )}
 
@@ -176,7 +191,7 @@ export default function BetCard({
         <button
           type="button"
           className="btn btn-primary self-start"
-          disabled={!selected || submitting}
+          disabled={!selected || !stakeValid || exceedsBalance || submitting}
           onClick={placeBet}
         >
           {submitting ? "Envoi..." : "Parier"}

@@ -38,6 +38,22 @@ export default async function AccountPage({
 
       <div className="card p-4 flex items-center justify-between gap-3">
         <div>
+          <p className="text-sm font-semibold">Solde</p>
+          <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+            Monnaie virtuelle du site, utilisée pour les paris (matchs et Le Pari du Parry).
+          </p>
+        </div>
+        <p className="text-lg font-bold whitespace-nowrap" style={{ color: "var(--gold)" }}>
+          {user?.exBalance ?? 0} Ex
+        </p>
+      </div>
+
+      <a href="/history" className="text-sm underline self-start" style={{ color: "var(--accent)" }}>
+        Voir l&apos;historique de mes paris
+      </a>
+
+      <div className="card p-4 flex items-center justify-between gap-3">
+        <div>
           <p className="text-sm font-semibold">Compte Twitch</p>
           <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
             {isLinked

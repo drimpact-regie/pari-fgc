@@ -28,7 +28,7 @@ export default function LeaderboardTable({
           <tr className="text-left" style={{ background: "var(--surface-alt)", color: "var(--muted)" }}>
             <th className="px-4 py-2 font-medium">#</th>
             <th className="px-4 py-2 font-medium">Parieur</th>
-            <th className="px-4 py-2 font-medium">Points</th>
+            <th className="px-4 py-2 font-medium">Ex</th>
             {showRecordColumns && (
               <>
                 <th className="px-4 py-2 font-medium">Gagnés</th>
@@ -53,7 +53,7 @@ export default function LeaderboardTable({
                     {row.username}
                   </span>
                 </td>
-                <td className="px-4 py-2 font-semibold" style={{ color: "var(--accent)" }}>
+                <td className="px-4 py-2 font-semibold" style={{ color: "var(--gold)" }}>
                   {row.points}
                 </td>
                 {showRecordColumns && (

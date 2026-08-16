@@ -1,11 +1,15 @@
 import Link from "next/link";
 
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import LogoutButton from "@/components/LogoutButton";
 import AdminMenu from "@/components/AdminMenu";
 
 export default async function Nav() {
   const session = await auth();
+  const currentUser = session?.user
+    ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
+    : null;
 
   return (
     <header
@@ -23,6 +27,11 @@ export default async function Nav() {
               LeaderBet
             </Link>
             {session.user.isAdmin && <AdminMenu />}
+            {currentUser && (
+              <span className="font-semibold" style={{ color: "var(--gold)" }}>
+                {currentUser.exBalance} Ex
+              </span>
+            )}
             <Link href="/account" className="hover:opacity-80" style={{ color: "var(--muted)" }}>
               {session.user.name}
             </Link>

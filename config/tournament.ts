@@ -33,29 +33,22 @@ export const MAX_USERS = Number(process.env.MAX_USERS ?? 30);
  */
 export const SITE_URL = process.env.SITE_URL?.trim().replace(/\/+$/, "") || "";
 
-/** Points attribués pour un pari gagnant (paris "Top 8" et anciens paris sans score). */
-export const POINTS_PER_CORRECT_BET = Number(
-  process.env.POINTS_PER_CORRECT_BET ?? 1,
-);
+/**
+ * Solde de départ (en Ex, la monnaie virtuelle unique du site) crédité à la
+ * création d'un compte. Doit rester synchronisé avec le défaut de la
+ * colonne User.exBalance côté schéma Prisma (les valeurs par défaut SQL ne
+ * peuvent pas référencer une constante TypeScript). Les comptes déjà
+ * existants au moment de l'introduction d'Ex reçoivent à la place la somme
+ * de leurs gains déjà accumulés — voir lib/exMigration.ts.
+ */
+export const DEFAULT_STARTING_EX = Number(process.env.DEFAULT_STARTING_EX ?? 10000);
 
 /**
- * Barème de points pour un pari "vainqueur + score exact" sur un match, avec
- * une logique de risk/reward façon cote sportive : parier sur l'outsider
- * (moins bien seedé) rapporte plus de points qu'un pari sur le favori, et
- * deviner le score exact (pas juste le vainqueur) ajoute un bonus.
+ * Cote de repli (format décimal, équivalent à un 50/50) utilisée quand un
+ * seed est manquant, égal entre les deux joueurs, ou invalide (0/négatif —
+ * division par zéro sinon) — voir lib/odds.ts.
  */
-export const BET_POINTS = {
-  /** Points de base pour un vainqueur correctement deviné (pari sur le favori). */
-  base: POINTS_PER_CORRECT_BET,
-  /** Écart de seed nécessaire entre les deux joueurs pour gagner 1 point bonus "outsider". */
-  underdogSeedGapPerBonusPoint: 4,
-  /** Plafond du bonus "outsider", quel que soit l'écart de seed. */
-  underdogBonusCap: 4,
-  /** Bonus si le score exact est deviné, selon le format du set (best of 3/5/7). */
-  exactScoreBonusByBestOf: { 3: 2, 5: 3, 7: 4 } as Record<number, number>,
-  /** Bonus de score exact par défaut quand le format du set est inconnu. */
-  exactScoreBonusDefault: 2,
-};
+export const FALLBACK_ODDS = 2.0;
 
 /**
  * Points "Le Pari du Parry" : prono Top 8 pondéré par placement réel, MVC

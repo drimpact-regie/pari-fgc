@@ -16,9 +16,12 @@ import {
   type StartggSeed,
   type StartggSet,
 } from "@/lib/startgg";
+import { computeMatchOdds } from "@/lib/odds";
+import { FALLBACK_ODDS } from "@/config/tournament";
 import BetCard from "@/components/BetCard";
 import ActiveChatSetButton from "@/components/ActiveChatSetButton";
 import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatchesSidebar";
+import type { Bet } from "@prisma/client";
 
 interface RoundGroup {
   label: string;
@@ -71,6 +74,38 @@ function buildPhaseSections(phases: StartggPhase[], sets: StartggSet[]): PhaseSe
   return Array.from(sections.values());
 }
 
+/** Entrants connus d'un set avec leur cote décimale calculée depuis les seeds (lib/odds.ts). */
+function buildEntrantsWithOdds(set: StartggSet) {
+  const known = set.slots.filter(
+    (slot): slot is typeof slot & { entrant: StartggEntrant } => slot.entrant !== null,
+  );
+  if (known.length !== 2) {
+    return known.map((slot) => ({
+      id: slot.entrant.id,
+      name: slot.entrant.name,
+      seedNum: slot.seedNum,
+      odds: FALLBACK_ODDS,
+    }));
+  }
+  const [a, b] = known;
+  const { oddsA, oddsB } = computeMatchOdds(a.seedNum, b.seedNum);
+  return [
+    { id: a.entrant.id, name: a.entrant.name, seedNum: a.seedNum, odds: oddsA },
+    { id: b.entrant.id, name: b.entrant.name, seedNum: b.seedNum, odds: oddsB },
+  ];
+}
+
+function buildExistingBet(bet: Bet | undefined) {
+  if (!bet) return null;
+  return {
+    entrantName: bet.predictedEntrantName,
+    stake: bet.stake ?? 0,
+    odds: bet.odds ?? 0,
+    status: bet.status,
+    payout: bet.pointsAwarded,
+  };
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function MatchesPage({
@@ -97,10 +132,12 @@ export default async function MatchesPage({
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
 
-  const userBets = await prisma.bet.findMany({
-    where: { userId: session.user.id, eventSlug: tournament.eventSlug },
-  });
+  const [userBets, currentUser] = await Promise.all([
+    prisma.bet.findMany({ where: { userId: session.user.id, eventSlug: tournament.eventSlug } }),
+    prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } }),
+  ]);
   const betBySetId = new Map(userBets.map((bet) => [bet.setId, bet]));
+  const exBalance = currentUser?.exBalance ?? 0;
 
   const phaseSections = buildPhaseSections(phases, sets);
 
@@ -112,12 +149,8 @@ export default async function MatchesPage({
     .filter((set) => isLateBracketRound(set.fullRoundText) && isSetOpenForBetting(set))
     .map((set) => ({
       set,
-      entrants: set.slots
-        .filter(
-          (slot): slot is typeof slot & { entrant: StartggEntrant } => slot.entrant !== null,
-        )
-        .map((slot) => ({ id: slot.entrant.id, name: slot.entrant.name, seedNum: slot.seedNum })),
-      bet: betBySetId.get(set.id),
+      entrants: buildEntrantsWithOdds(set),
+      bet: buildExistingBet(betBySetId.get(set.id)),
     }));
 
   // Têtes de série affichées uniquement pour les poules identifiées — pas
@@ -142,7 +175,11 @@ export default async function MatchesPage({
 
   return (
     <div className="flex gap-4 items-start">
-      <OpenMatchesSidebar tournamentId={tournamentId} entries={openMatchEntries} />
+      <OpenMatchesSidebar
+        tournamentId={tournamentId}
+        entries={openMatchEntries}
+        exBalance={exBalance}
+      />
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
       {error && (
@@ -226,17 +263,8 @@ export default async function MatchesPage({
                     </summary>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 pt-0">
                       {group.sets.map((set) => {
-                        const entrants = set.slots
-                          .filter(
-                            (slot): slot is typeof slot & { entrant: StartggEntrant } =>
-                              slot.entrant !== null,
-                          )
-                          .map((slot) => ({
-                            id: slot.entrant.id,
-                            name: slot.entrant.name,
-                            seedNum: slot.seedNum,
-                          }));
-                        const bet = betBySetId.get(set.id);
+                        const entrants = buildEntrantsWithOdds(set);
+                        const bet = buildExistingBet(betBySetId.get(set.id));
 
                         return (
                           <div id={`set-${set.id}`} key={set.id} className="flex flex-col gap-1 scroll-mt-4">
@@ -255,11 +283,9 @@ export default async function MatchesPage({
                               tournamentId={tournamentId}
                               setId={set.id}
                               entrants={entrants}
-                              totalGames={set.totalGames}
                               locked={set.state !== SET_STATE.NOT_STARTED}
-                              existingBetEntrantName={bet?.predictedEntrantName ?? null}
-                              existingBetEntrantScore={bet?.predictedEntrantScore ?? null}
-                              existingBetOpponentScore={bet?.predictedOpponentScore ?? null}
+                              exBalance={exBalance}
+                              existingBet={bet}
                             />
                           </div>
                         );

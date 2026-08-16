@@ -82,11 +82,38 @@ model User {
   // quand quelqu'un parie depuis le chat sans compte préexistant sur le site.
   twitchId     String?  @unique
   isAdmin      Boolean  @default(false)
+  // Monnaie virtuelle unique du site ("Ex"), utilisée à la fois pour les
+  // paris à mise/cote sur les matchs classiques et comme unité pour les
+  // gains fixes du Pari du Parry (MVC, reset de bracket). Nouveau compte :
+  // DEFAULT_STARTING_EX (config/tournament.ts) — garder synchronisé avec
+  // cette valeur par défaut. Comptes déjà existants au moment de
+  // l'introduction d'Ex : voir /api/admin/migrate-ex-balances (lib/exMigration.ts).
+  exBalance    Int      @default(10000)
   createdAt    DateTime @default(now())
   bets         Bet[]
   topEightPicks TopEightPick[]
   mvcBets        MvcBet[]
   bracketResetBets BracketResetBet[]
+  exAdjustments  ExAdjustment[]
+}
+
+/**
+ * Ajustement manuel du solde Ex d'un utilisateur par un admin (correction
+ * d'erreur, récompense...) — journalisé plutôt que d'écraser exBalance sans
+ * trace, pour garder un historique consultable de qui a fait quoi et
+ * pourquoi.
+ */
+model ExAdjustment {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Positif = crédit, négatif = débit.
+  amount         Int
+  reason         String
+  adminUsername  String
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
 }
 
 /**
@@ -200,19 +227,26 @@ model Bet {
   roundText             String
   predictedEntrantId    String
   predictedEntrantName  String
-  // Score exact pronostiqué (optionnel, bonus de points) : manches gagnées
-  // par le joueur pronostiqué vainqueur / par son adversaire.
+  // Ancien mécanisme "vainqueur + score exact" (bonus de points fixes),
+  // remplacé par la mise/cote ci-dessous — conservés nullable pour ne pas
+  // perdre l'historique des paris déjà placés avant ce changement, mais
+  // plus renseignés pour les nouveaux paris.
   predictedEntrantScore  Int?
   predictedOpponentScore Int?
-  // Snapshot des têtes de série au moment du pari, pour calculer le bonus
-  // "outsider" à la résolution sans dépendre de données start.gg qui
-  // peuvent ne plus être exposées de la même façon plus tard dans le
-  // tournoi.
+  // Snapshot des têtes de série au moment du pari. Servait au bonus
+  // "outsider" de l'ancien mécanisme ; sert désormais de source pour le
+  // calcul de la cote (voir lib/odds.ts), toujours utile pour les deux.
   predictedEntrantSeed   Int?
   opponentSeed           Int?
-  // Format du set (Bo3 = 3, Bo5 = 5, ...), pour calibrer le bonus de score
-  // exact à la résolution.
+  // Format du set (Bo3 = 3, Bo5 = 5, ...) — ne sert plus qu'à l'affichage
+  // depuis le passage à la mise/cote (ancien bonus de score exact retiré).
   totalGames             Int?
+  // Mise en Ex et cote décimale au moment du pari (snapshot — la cote
+  // affichée à l'utilisateur est celle qui sert au calcul du gain, même si
+  // les seeds venaient à changer entre le pari et la résolution). Nullable
+  // pour les paris placés avant l'introduction de la mise libre.
+  stake                 Int?
+  odds                  Float?
   status                BetStatus @default(PENDING)
   pointsAwarded         Int       @default(0)
   createdAt             DateTime  @default(now())
