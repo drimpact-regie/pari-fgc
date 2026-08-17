@@ -61,6 +61,9 @@ export async function createInvitationalEvent(input: {
             ? competitorIdByName.get(normalizeCompetitorKey(match.competitorB.name))
             : null,
           placeholderB: match.placeholderB,
+          ftGames: match.ftGames,
+          roundsPerGame: match.roundsPerGame,
+          verifManette: match.verifManette,
         },
       });
     }

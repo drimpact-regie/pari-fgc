@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
+import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,17 @@ export default async function AdminInvitationalEventPage({
         <InvitationalTwitchChannelEditor eventId={event.id} initialChannel={event.twitchChannel} />
       </div>
 
+      <InvitationalOverlaySettings
+        eventId={event.id}
+        config={{
+          rundownMinSecondsPerRound: event.rundownMinSecondsPerRound,
+          rundownMaxSecondsPerRound: event.rundownMaxSecondsPerRound,
+          rundownSetupSeconds: event.rundownSetupSeconds,
+          rundownVerifSeconds: event.rundownVerifSeconds,
+          rundownStartAt: event.rundownStartAt,
+        }}
+      />
+
       {matches.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>
           Aucun match importé pour cet event.
@@ -85,6 +97,7 @@ export default async function AdminInvitationalEventPage({
                   eventId={event.id}
                   showChatButton={Boolean(event.twitchChannel)}
                   isActiveChatMatch={event.activeChatMatchId === m.id}
+                  isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
                 />
               ))}
             </div>

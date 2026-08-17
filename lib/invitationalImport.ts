@@ -18,6 +18,10 @@ export interface ParsedMatch {
   placeholderA: string | null;
   competitorB: ParsedCompetitor | null;
   placeholderB: string | null;
+  /** Partie numérique de "FT3"/"FT5"... (donc 3, 5...), ou null si absente/invalide. */
+  ftGames: number | null;
+  roundsPerGame: number | null;
+  verifManette: boolean | null;
 }
 
 export interface ParsedInvitationalImport {
@@ -79,6 +83,9 @@ const MATCH_COLUMNS = {
   nomB: ["joueur b", "joueurb", "nom b"],
   tagB: ["tag b", "tagb", "equipe b", "sponsor b"],
   paysB: ["pays b", "paysb", "pays b (code)", "flag b"],
+  ft: ["format (ft)", "format", "ft"],
+  roundsParManche: ["rounds par manche", "rounds/manche", "rounds"],
+  verifManette: ["verif manette", "verification manette"],
 } as const;
 
 type MatchColumnKey = keyof typeof MATCH_COLUMNS;
@@ -165,6 +172,34 @@ function parseCompetitorField(
   };
 }
 
+/** Extrait la partie numérique de "FT3"/"ft5"... — null si absente ou invalide. */
+function parseFtGames(raw: string | null): number | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D+/g, "");
+  if (!digits) return null;
+  const value = Number.parseInt(digits, 10);
+  return Number.isFinite(value) && value >= 1 ? value : null;
+}
+
+/** Colonne numérique (comme "Ordre") : accepte un nombre natif ou un texte numérique. */
+function parseRoundsPerGame(row: unknown[], idx: number): number | null {
+  if (idx === -1) return null;
+  const raw = row[idx];
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw >= 1 ? raw : null;
+  const text = cellString(row, idx);
+  if (!text) return null;
+  const value = Number.parseInt(text, 10);
+  return Number.isFinite(value) && value >= 1 ? value : null;
+}
+
+/** "Oui"/"Non" (insensible casse/accents) — null si vide ou non reconnu. */
+function parseVerifManette(raw: string | null): boolean | null {
+  const value = normalize(raw);
+  if (value === "oui" || value === "yes" || value === "true") return true;
+  if (value === "non" || value === "no" || value === "false") return false;
+  return null;
+}
+
 function parseMatchRows(rows: unknown[][]): ParsedMatch[] {
   if (rows.length === 0) {
     throw new InvitationalImportError('Onglet "Matchs" vide (aucune ligne de données).');
@@ -201,6 +236,9 @@ function parseMatchRows(rows: unknown[][]): ParsedMatch[] {
       placeholderA: fieldA.placeholder,
       competitorB: fieldB.competitor,
       placeholderB: fieldB.placeholder,
+      ftGames: parseFtGames(cellString(row, columns.ft)),
+      roundsPerGame: parseRoundsPerGame(row, columns.roundsParManche),
+      verifManette: parseVerifManette(cellString(row, columns.verifManette)),
     });
   });
 

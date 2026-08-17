@@ -59,7 +59,12 @@ export const proxy = auth((req) => {
     // Invitational/Prestataire, en anticipation d'un futur overlay stream
     // (OBS browser source) — ne renvoie que des données déjà destinées à
     // être affichées à l'écran, jamais de données de compte/pari.
-    pathname.startsWith("/api/invitational/events/");
+    pathname.startsWith("/api/invitational/events/") ||
+    // Pages overlay OBS (Browser Source) et leur API dédiée : chargées
+    // directement par OBS, sans session navigateur — lecture seule, mêmes
+    // données déjà publiques sur les pages event.
+    pathname.startsWith("/overlay/") ||
+    pathname.startsWith("/api/invitational/overlay/");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

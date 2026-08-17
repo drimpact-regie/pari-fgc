@@ -36,6 +36,9 @@ describe("parseInvitationalWorkbook — bracket format", () => {
       placeholderA: null,
       competitorB: { name: "Leffen", tag: "TSM", countryCode: "SE" },
       placeholderB: null,
+      ftGames: null,
+      roundsPerGame: null,
+      verifManette: null,
     });
     // Empty tag/country cells become null, not empty strings.
     expect(result.matches[1].competitorA).toEqual({ name: "Kayos", tag: null, countryCode: "US" });
@@ -178,6 +181,49 @@ describe("parseInvitationalWorkbook — no-bracket list format", () => {
 
     const result = parseInvitationalWorkbook(buffer, "showmatch.xlsx");
     expect(result.matches).toHaveLength(2);
+  });
+});
+
+describe("parseInvitationalWorkbook — set structure (Format FT / Rounds par manche / Verif manette)", () => {
+  const HEADER_WITH_STRUCTURE = [
+    ...MATCH_HEADER,
+    "Format (FT)",
+    "Rounds par manche",
+    "Verif manette",
+  ];
+
+  it("parses FT/rounds/verif columns when present", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [
+        HEADER_WITH_STRUCTURE,
+        ["", 1, "SonicFox", "", "US", "Leffen", "", "SE", "FT3", 2, "Oui"],
+        ["", 2, "Kayozz", "", "FR", "Punk", "", "US", "FT5", 3, "Non"],
+      ],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "event.xlsx");
+
+    expect(result.matches[0]).toMatchObject({ ftGames: 3, roundsPerGame: 2, verifManette: true });
+    expect(result.matches[1]).toMatchObject({ ftGames: 5, roundsPerGame: 3, verifManette: false });
+  });
+
+  it("is case-insensitive on Oui/Non and tolerant of the FT prefix casing", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [HEADER_WITH_STRUCTURE, ["", 1, "A", "", "", "B", "", "", "ft7", 2, "oui"]],
+    });
+    const result = parseInvitationalWorkbook(buffer, "event.xlsx");
+    expect(result.matches[0]).toMatchObject({ ftGames: 7, roundsPerGame: 2, verifManette: true });
+  });
+
+  it("leaves ftGames/roundsPerGame/verifManette null when the columns are absent or blank", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [MATCH_HEADER, ["", 1, "A", "", "", "B", "", ""]],
+    });
+    const result = parseInvitationalWorkbook(buffer, "event.xlsx");
+    expect(result.matches[0]).toMatchObject({ ftGames: null, roundsPerGame: null, verifManette: null });
   });
 });
 

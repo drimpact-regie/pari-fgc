@@ -9,6 +9,17 @@ const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PAST"]).optional(),
   twitchChannel: z.string().trim().max(100).optional(),
   activeChatMatchId: z.string().trim().optional(),
+  // Match affiché sur l'overlay OBS "match en cours" — désignation
+  // indépendante de activeChatMatchId (voir /overlay/invitational/[eventId]/match).
+  activeOverlayMatchId: z.string().trim().optional(),
+  // Constantes du calcul d'estimation d'horaires (Rundown), reproduites
+  // côté site pour l'encart "prochains matchs" de l'overlay bracket — voir
+  // lib/invitationalRundown.ts.
+  rundownMinSecondsPerRound: z.number().int().positive().optional(),
+  rundownMaxSecondsPerRound: z.number().int().positive().optional(),
+  rundownSetupSeconds: z.number().int().nonnegative().optional(),
+  rundownVerifSeconds: z.number().int().nonnegative().optional(),
+  rundownStartAt: z.string().trim().optional(),
 });
 
 export async function PATCH(
@@ -35,6 +46,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Event introuvable." }, { status: 404 });
   }
 
+  let rundownStartAt: Date | null | undefined;
+  if (parsed.data.rundownStartAt !== undefined) {
+    if (parsed.data.rundownStartAt === "") {
+      rundownStartAt = null;
+    } else {
+      const date = new Date(parsed.data.rundownStartAt);
+      if (Number.isNaN(date.getTime())) {
+        return NextResponse.json({ error: "Heure de début invalide." }, { status: 400 });
+      }
+      rundownStartAt = date;
+    }
+  }
+
   const event = await prisma.invitationalEvent.update({
     where: { id: eventId },
     data: {
@@ -45,6 +69,22 @@ export async function PATCH(
       ...(parsed.data.activeChatMatchId !== undefined
         ? { activeChatMatchId: parsed.data.activeChatMatchId || null }
         : {}),
+      ...(parsed.data.activeOverlayMatchId !== undefined
+        ? { activeOverlayMatchId: parsed.data.activeOverlayMatchId || null }
+        : {}),
+      ...(parsed.data.rundownMinSecondsPerRound !== undefined
+        ? { rundownMinSecondsPerRound: parsed.data.rundownMinSecondsPerRound }
+        : {}),
+      ...(parsed.data.rundownMaxSecondsPerRound !== undefined
+        ? { rundownMaxSecondsPerRound: parsed.data.rundownMaxSecondsPerRound }
+        : {}),
+      ...(parsed.data.rundownSetupSeconds !== undefined
+        ? { rundownSetupSeconds: parsed.data.rundownSetupSeconds }
+        : {}),
+      ...(parsed.data.rundownVerifSeconds !== undefined
+        ? { rundownVerifSeconds: parsed.data.rundownVerifSeconds }
+        : {}),
+      ...(rundownStartAt !== undefined ? { rundownStartAt } : {}),
     },
   });
 

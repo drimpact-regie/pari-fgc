@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import ActiveChatInvitationalMatchButton from "@/components/ActiveChatInvitationalMatchButton";
+import ActiveOverlayMatchButton from "@/components/ActiveOverlayMatchButton";
 
 interface Competitor {
   id: string;
@@ -25,6 +26,10 @@ interface Match {
   winnerId: string | null;
   scoreA: number | null;
   scoreB: number | null;
+  /** Structure du set (voir InvitationalMatch.ftGames/roundsPerGame/verifManette) — alimente l'estimation d'horaires overlay. */
+  ftGames: number | null;
+  roundsPerGame: number | null;
+  verifManette: boolean | null;
 }
 
 const STATUS_LABELS: Record<Match["status"], string> = {
@@ -95,11 +100,13 @@ export default function InvitationalMatchRow({
   eventId,
   showChatButton,
   isActiveChatMatch,
+  isActiveOverlayMatch,
 }: {
   match: Match;
   eventId: string;
   showChatButton: boolean;
   isActiveChatMatch: boolean;
+  isActiveOverlayMatch: boolean;
 }) {
   const router = useRouter();
   const locked = match.status === "COMPLETED";
@@ -111,6 +118,11 @@ export default function InvitationalMatchRow({
     match.competitorB ?? { id: "", name: "", tag: null, countryCode: null },
   );
   const [status, setStatus] = useState<Match["status"]>(match.status);
+  const [ftGames, setFtGames] = useState(match.ftGames != null ? String(match.ftGames) : "");
+  const [roundsPerGame, setRoundsPerGame] = useState(match.roundsPerGame != null ? String(match.roundsPerGame) : "");
+  const [verifManette, setVerifManette] = useState(
+    match.verifManette === true ? "oui" : match.verifManette === false ? "non" : "",
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -140,6 +152,9 @@ export default function InvitationalMatchRow({
           ? { competitorB: { name: competitorB.name, tag: competitorB.tag, countryCode: competitorB.countryCode } }
           : {}),
         status,
+        ftGames: ftGames.trim() === "" ? null : Number(ftGames),
+        roundsPerGame: roundsPerGame.trim() === "" ? null : Number(roundsPerGame),
+        verifManette: verifManette === "" ? null : verifManette === "oui",
       }),
     });
 
@@ -202,6 +217,7 @@ export default function InvitationalMatchRow({
           {match.groupLabel ? `${match.groupLabel} — ` : ""}Match #{match.orderIndex + 1}
         </span>
         <div className="flex items-center gap-2">
+          <ActiveOverlayMatchButton eventId={eventId} matchId={match.id} active={isActiveOverlayMatch} />
           {showChatButton && match.status === "OPEN" && (
             <ActiveChatInvitationalMatchButton eventId={eventId} matchId={match.id} active={isActiveChatMatch} />
           )}
@@ -240,6 +256,44 @@ export default function InvitationalMatchRow({
           placeholder={!competitorB.id ? match.placeholderB : null}
         />
       </div>
+
+      {!locked && (
+        <div className="flex flex-wrap items-end gap-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+          <label className="text-xs">
+            Format (FT)
+            <input
+              className="input mt-1"
+              style={{ width: "5rem" }}
+              value={ftGames}
+              onChange={(e) => setFtGames(e.target.value.replace(/\D/g, ""))}
+              placeholder="3"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="text-xs">
+            Rounds/manche
+            <input
+              className="input mt-1"
+              style={{ width: "5rem" }}
+              value={roundsPerGame}
+              onChange={(e) => setRoundsPerGame(e.target.value.replace(/\D/g, ""))}
+              placeholder="2"
+              inputMode="numeric"
+            />
+          </label>
+          <label className="text-xs">
+            Vérif manette
+            <select className="input mt-1" value={verifManette} onChange={(e) => setVerifManette(e.target.value)}>
+              <option value="">—</option>
+              <option value="oui">Oui</option>
+              <option value="non">Non</option>
+            </select>
+          </label>
+          <p className="text-xs self-end pb-1.5" style={{ color: "var(--muted)" }}>
+            (alimente l&apos;estimation d&apos;horaires de l&apos;overlay bracket)
+          </p>
+        </div>
+      )}
 
       {!locked && (
         <div className="flex items-center gap-2">

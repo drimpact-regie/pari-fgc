@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Nav from "@/components/Nav";
-import AuthProvider from "@/components/AuthProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,23 +17,22 @@ export const metadata: Metadata = {
   description: "Paris entre amis sur les brackets start.gg",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+/**
+ * Racine minimale : le chrome du site (Nav, pied de page, conteneur
+ * centré) vit dans app/(site)/layout.tsx, pas ici — pour que les pages
+ * overlay OBS (app/overlay/...) puissent avoir leur propre mise en page
+ * transparente sans hériter de la Nav/du fond opaque du site (voir
+ * app/overlay/layout.tsx). Next.js n'autorise qu'un seul <html>/<body> par
+ * arbre de routes ; c'est le rôle des groupes de routes "(site)" / "overlay"
+ * de diverger en dessous de cette racine commune.
+ */
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="fr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <AuthProvider>
-          <Nav />
-          <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8">
-            {children}
-          </main>
-          <footer className="text-center text-xs py-6" style={{ color: "var(--muted)" }}>
-            Données fournies par l&apos;API start.gg
-          </footer>
-        </AuthProvider>
-      </body>
+      <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

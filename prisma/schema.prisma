@@ -336,7 +336,23 @@ model InvitationalEvent {
   // plutôt que la dupliquer.
   twitchChannel     String?
   activeChatMatchId String?
-  createdAt         DateTime @default(now())
+  // Match actuellement affiché sur l'overlay OBS "match en cours" (voir
+  // /overlay/invitational/[eventId]/match) — désignation 100% manuelle,
+  // indépendante du statut "ouvert au pari" : plusieurs matchs peuvent être
+  // en cours en parallèle sur un event, un seul est "à l'écran" à la fois.
+  activeOverlayMatchId String?
+  createdAt             DateTime @default(now())
+
+  // Constantes de calcul du Rundown (estimation d'horaires par set),
+  // éditables par event — mêmes valeurs par défaut et même formule que le
+  // fichier Excel Rundown (voir lib/invitationalRundown.ts) : reproduites
+  // ici pour piloter l'encart "prochains matchs" de l'overlay bracket sans
+  // dépendre du fichier Excel après l'import initial.
+  rundownMinSecondsPerRound Int      @default(25)
+  rundownMaxSecondsPerRound Int      @default(60)
+  rundownSetupSeconds       Int      @default(120)
+  rundownVerifSeconds       Int      @default(30)
+  rundownStartAt            DateTime?
 
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
@@ -406,6 +422,15 @@ model InvitationalMatch {
   winner        InvitationalCompetitor? @relation("InvitationalMatchWinner", fields: [winnerId], references: [id])
   scoreA        Int?
   scoreB        Int?
+  // Structure du set (colonnes "Format (FT)" / "Rounds par manche" /
+  // "Verif manette" de l'onglet Matchs importé) — alimente le calcul de
+  // l'estimation d'horaires (lib/invitationalRundown.ts), reproduit côté
+  // site pour l'encart "prochains matchs" de l'overlay bracket. ftGames =
+  // partie numérique de "FT3" (donc 3). Optionnels : un match sans ces
+  // valeurs est simplement ignoré du calcul d'horaire.
+  ftGames       Int?
+  roundsPerGame Int?
+  verifManette  Boolean?
   createdAt     DateTime @default(now())
   resolvedAt    DateTime?
 

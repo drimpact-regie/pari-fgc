@@ -15,6 +15,12 @@ const updateSchema = z.object({
   competitorA: competitorSchema.optional(),
   competitorB: competitorSchema.optional(),
   status: z.enum(["NOT_OPEN", "OPEN", "CLOSED", "COMPLETED"]).optional(),
+  // Structure du set — alimente l'estimation d'horaires côté overlay (voir
+  // lib/invitationalRundown.ts), éditable même si l'import ne l'a pas
+  // renseignée ou pour la corriger après coup.
+  ftGames: z.number().int().positive().nullable().optional(),
+  roundsPerGame: z.number().int().positive().nullable().optional(),
+  verifManette: z.boolean().nullable().optional(),
 });
 
 /**
@@ -93,7 +99,13 @@ export async function PATCH(
 
   const updated = await prisma.invitationalMatch.update({
     where: { id: matchId },
-    data: { ...matchData, ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}) },
+    data: {
+      ...matchData,
+      ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+      ...(parsed.data.ftGames !== undefined ? { ftGames: parsed.data.ftGames } : {}),
+      ...(parsed.data.roundsPerGame !== undefined ? { roundsPerGame: parsed.data.roundsPerGame } : {}),
+      ...(parsed.data.verifManette !== undefined ? { verifManette: parsed.data.verifManette } : {}),
+    },
     include: { competitorA: true, competitorB: true },
   });
 
