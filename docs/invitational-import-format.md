@@ -98,6 +98,15 @@ correspond (insensible à la casse/aux espaces) à un compétiteur déjà
 présent dans l'event, il est réutilisé (sa série de victoires continue de
 s'accumuler) plutôt que dupliqué.
 
+#### Colonnes optionnelles ignorées par l'import
+
+Les modèles d'exemple ajoutent des colonnes `Format (FT)`, `Rounds par
+manche` et `Verif manette`, ainsi que des colonnes techniques (`Statut`,
+`Rang attente`, `Rang pret`) — elles alimentent l'onglet `Rundown`
+(estimation d'horaires) et les formules de l'onglet `Vue d'ensemble` de ces
+modèles, mais ne sont **jamais lues par l'import** : seules les colonnes
+listées plus haut comptent.
+
 ### Onglet `Rundown` (optionnel, jamais lu)
 
 Peut être présent pour l'organisation technique de l'event côté
