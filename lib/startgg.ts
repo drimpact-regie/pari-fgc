@@ -415,9 +415,19 @@ const SET_RESULT_QUERY = /* GraphQL */ `
 const MAX_PAGES = 5;
 const PER_PAGE = 50;
 
+/**
+ * `truncated` est vrai si l'event avait plus de pages que MAX_PAGES n'en a
+ * parcouru — càd que tous les sets n'ont pas pu être récupérés. Pour un
+ * grand tournoi (poules + bracket cumulant plus de MAX_PAGES*PER_PAGE sets
+ * terminés), ça peut faire disparaître silencieusement des sets de fin de
+ * bracket (Losers Final, Grande Finale...) de la liste retournée — voir
+ * getCompletedSetsWithTruncation, qui s'en sert pour rattraper au cas par
+ * cas les sets pariés manquants plutôt que de les laisser bloqués en
+ * attente indéfiniment.
+ */
 async function fetchAllPages<TNode>(
   fetchPage: (page: number) => Promise<{ nodes: TNode[]; totalPages: number } | null>,
-): Promise<TNode[]> {
+): Promise<{ nodes: TNode[]; truncated: boolean }> {
   const all: TNode[] = [];
   let page = 1;
   let totalPages = 1;
@@ -428,7 +438,7 @@ async function fetchAllPages<TNode>(
     totalPages = result.totalPages || 1;
     page += 1;
   } while (page <= totalPages && page <= MAX_PAGES);
-  return all;
+  return { nodes: all, truncated: totalPages > MAX_PAGES };
 }
 
 // --- API publique --------------------------------------------------------------
@@ -548,7 +558,7 @@ function normalizeStanding(standing: RawStartggStanding): StartggStanding {
 export async function getUpcomingSets(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggSet[]> {
-  const sets = await fetchAllPages<RawStartggSet>(async (page) => {
+  const { nodes } = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
         sets: { pageInfo: { totalPages: number }; nodes: RawStartggSet[] } | null;
@@ -562,13 +572,20 @@ export async function getUpcomingSets(
   // ni la sidebar, ni la liste des rounds, ni le pari chat ne doivent
   // jamais les proposer comme pariables, sous peine de créer des paris
   // orphelins qui ne pourront jamais se résoudre.
-  return sets.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
+  return nodes.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
 }
 
-export async function getCompletedSets(
+/**
+ * Comme getCompletedSets, mais expose aussi si la pagination a été
+ * tronquée (event avec plus de sets terminés que MAX_PAGES*PER_PAGE n'en
+ * couvre) — sert à resolveAllPendingBets (lib/matchResults.ts) pour savoir
+ * s'il faut rattraper individuellement un set parié qui n'apparaît pas
+ * dans la liste, plutôt que de conclure à tort qu'il n'est pas terminé.
+ */
+export async function getCompletedSetsWithTruncation(
   eventSlug: string = STARTGG_EVENT_SLUG,
-): Promise<StartggSet[]> {
-  const sets = await fetchAllPages<RawStartggSet>(async (page) => {
+): Promise<{ sets: StartggSet[]; truncated: boolean }> {
+  const { nodes, truncated } = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
         sets: { pageInfo: { totalPages: number }; nodes: RawStartggSet[] } | null;
@@ -578,13 +595,20 @@ export async function getCompletedSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
-  return sets.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
+  return { sets: nodes.map(normalizeSet).filter((set) => !isPreviewSetId(set.id)), truncated };
+}
+
+export async function getCompletedSets(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggSet[]> {
+  const { sets } = await getCompletedSetsWithTruncation(eventSlug);
+  return sets;
 }
 
 export async function getStandings(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggStanding[]> {
-  const standings = await fetchAllPages<RawStartggStanding>(async (page) => {
+  const { nodes } = await fetchAllPages<RawStartggStanding>(async (page) => {
     const data = await callStartGG<{
       event: {
         standings: {
@@ -600,7 +624,7 @@ export async function getStandings(
       totalPages: data.event.standings.pageInfo.totalPages,
     };
   });
-  return standings.map(normalizeStanding);
+  return nodes.map(normalizeStanding);
 }
 
 /**

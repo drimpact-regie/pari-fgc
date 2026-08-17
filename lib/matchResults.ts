@@ -3,7 +3,8 @@ import type { Tournament } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeMatchBetPayout } from "@/lib/odds";
 import {
-  getCompletedSets,
+  getCompletedSetsWithTruncation,
+  getSetResult,
   isNotableMatch,
   isPreviewSetId,
   SET_STATE,
@@ -102,11 +103,15 @@ export interface ResolveAllPendingBetsResult {
  * — ces id ne sont jamais interrogés côté start.gg, ça ne mènerait à rien).
  *
  * Interroge start.gg au maximum une fois par event distinct concerné (via
- * getCompletedSets, une requête paginée couvrant tous les sets terminés d'un
- * coup), plutôt qu'une requête getSetResult séparée par pari en attente —
- * avec beaucoup de paris en attente en simultané (tournoi actif, chat qui
- * déclenche ce passage toutes les 30s), l'ancienne approche pouvait
- * facilement dépasser le rate-limit de l'API start.gg (429).
+ * getCompletedSetsWithTruncation, une requête paginée couvrant tous les sets
+ * terminés d'un coup), plutôt qu'une requête getSetResult séparée par pari
+ * en attente — avec beaucoup de paris en attente en simultané (tournoi
+ * actif, chat qui déclenche ce passage toutes les 30s), l'ancienne approche
+ * pouvait facilement dépasser le rate-limit de l'API start.gg (429). Un
+ * appel getSetResult ciblé n'est fait qu'en repli, set par set, quand cette
+ * liste paginée s'avère tronquée ET que le set parié n'y figure pas (voir
+ * plus bas) — ça reste borné par le nombre de sets encore en attente, pas
+ * par la taille du tournoi.
  *
  * Point de résolution unique et idempotent, appelé aussi bien par l'action
  * admin manuelle (/api/admin/sync-results) que par le déclenchement
@@ -142,8 +147,9 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
 
   for (const [eventSlug, setIds] of pendingSetIdsByEventSlug) {
     let completedSets: StartggSet[];
+    let truncated: boolean;
     try {
-      completedSets = await getCompletedSets(eventSlug);
+      ({ sets: completedSets, truncated } = await getCompletedSetsWithTruncation(eventSlug));
     } catch (err) {
       errors.push(
         err instanceof StartggApiError ? `${eventSlug}: ${err.message}` : `${eventSlug}: erreur inconnue`,
@@ -153,7 +159,25 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
 
     const completedById = new Map(completedSets.map((set) => [set.id, set]));
     for (const setId of setIds) {
-      const set = completedById.get(setId);
+      let set = completedById.get(setId);
+
+      // La liste des sets terminés est plafonnée en pagination (voir
+      // MAX_PAGES dans lib/startgg.ts) : pour un gros event (poules + bracket
+      // cumulant beaucoup de sets terminés), un set de fin de bracket peut en
+      // être absent alors qu'il est bel et bien terminé. Dans ce cas précis
+      // (liste tronquée ET set introuvable dedans), on va le chercher
+      // individuellement plutôt que de laisser le pari bloqué en attente
+      // indéfiniment — un set réellement pas encore joué, lui, n'entraîne
+      // jamais cet appel supplémentaire tant que la liste n'est pas tronquée.
+      if (!set && truncated) {
+        try {
+          const direct = await getSetResult(setId);
+          if (direct && direct.state === SET_STATE.COMPLETED) set = direct;
+        } catch {
+          // best-effort — retentera au prochain passage.
+        }
+      }
+
       if (!set) continue; // pas encore terminé côté start.gg
 
       const resolvedCount = await resolveSetBets(set);
