@@ -1,7 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+
+// Pas d'abonnement réel nécessaire (l'origine ne change jamais en cours de
+// vie de la page) — un no-op suffit pour useSyncExternalStore.
+function subscribeNoop() {
+  return () => {};
+}
+function getOrigin() {
+  return window.location.origin;
+}
+function getServerOrigin() {
+  return "";
+}
 
 interface RundownConfig {
   rundownMinSecondsPerRound: number;
@@ -43,8 +55,15 @@ export default function InvitationalOverlaySettings({
   const [saved, setSaved] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
-  const matchOverlayUrl = typeof window !== "undefined" ? `${window.location.origin}/overlay/invitational/${eventId}/match` : "";
-  const bracketOverlayUrl = typeof window !== "undefined" ? `${window.location.origin}/overlay/invitational/${eventId}/bracket` : "";
+  // Rendu serveur sans accès à window : useSyncExternalStore renvoie
+  // getServerOrigin ("") côté serveur ET au tout premier rendu client (avant
+  // hydratation, pour rester identique au HTML serveur — pas de mismatch),
+  // puis re-rend avec la vraie origine une fois monté — nécessaire pour que
+  // l'URL copiée dans OBS soit absolue.
+  const origin = useSyncExternalStore(subscribeNoop, getOrigin, getServerOrigin);
+
+  const matchOverlayUrl = `${origin}/overlay/invitational/${eventId}/match`;
+  const bracketOverlayUrl = `${origin}/overlay/invitational/${eventId}/bracket`;
 
   async function handleSave() {
     setSaving(true);
