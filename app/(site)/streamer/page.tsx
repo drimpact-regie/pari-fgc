@@ -90,6 +90,14 @@ export default async function StreamerPage({
         </Link>
         .
       </p>
+
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        Tu organises un showmatch/exhibition sans présence start.gg ?{" "}
+        <Link href="/invitational/request" className="underline">
+          Demande ton event Invitational/Prestataire
+        </Link>
+        .
+      </p>
     </div>
   );
 }

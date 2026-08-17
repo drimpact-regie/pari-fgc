@@ -2,12 +2,24 @@
 
 Fichier `.xlsx` (recommandé) ou `.csv`, utilisé pour créer la structure d'un
 event Invitational/Prestataire (showmatch, weekly, exhibition) depuis
-`/admin/invitational`. L'import ne pose que la structure (liste des matchs,
-leur ordre/regroupement, les compétiteurs prévus) — pas les scores ni les
-résultats, saisis ensuite depuis l'admin au fil de l'event.
+`/admin/invitational` (import initial par un admin) ou depuis
+`/partner/invitational/[eventId]` (import/ré-import self-service par le
+prestataire, une fois sa demande confirmée — voir
+`lib/invitationalRequests.ts`). L'import ne pose que la structure (liste des
+matchs, leur ordre/regroupement, les compétiteurs prévus) — pas les scores ni
+les résultats, saisis ensuite depuis l'admin ou la page partenaire au fil de
+l'event.
 
 Le parseur est dans `lib/invitationalImport.ts` (testé dans
-`lib/invitationalImport.test.ts`).
+`lib/invitationalImport.test.ts`). Un modèle prêt à remplir par format est
+disponible dans `public/templates/invitational/` (voir
+`lib/invitationalTemplates.ts` pour la correspondance format → fichier),
+téléchargeable depuis la page partenaire.
+
+Le format déclaré dans l'onglet `Info` doit correspondre à celui choisi à la
+demande d'event (voir `/invitational/request`) : un ré-import self-service
+d'un fichier d'un autre format est rejeté (`importMatchesIntoInvitationalEvent`
+dans `lib/invitationalEvents.ts`) — changer de format nécessite un admin.
 
 ## Fichier `.xlsx`
 

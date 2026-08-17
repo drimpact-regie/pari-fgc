@@ -106,6 +106,13 @@ model User {
   bracketResetBets BracketResetBet[]
   exAdjustments  ExAdjustment[]
   invitationalBets InvitationalBet[]
+  // Portail self-service prestataire (voir InvitationalEventRequest) :
+  // demandes soumises par ce compte via connexion Twitch, demandes
+  // revues/tranchées par ce compte s'il est admin, events dont ce compte
+  // est le prestataire propriétaire une fois la demande confirmée.
+  invitationalEventRequests         InvitationalEventRequest[] @relation("InvitationalEventRequester")
+  reviewedInvitationalEventRequests InvitationalEventRequest[] @relation("InvitationalEventReviewer")
+  ownedInvitationalEvents           InvitationalEvent[]        @relation("InvitationalEventOwner")
 }
 
 /**
@@ -354,9 +361,72 @@ model InvitationalEvent {
   rundownVerifSeconds       Int      @default(30)
   rundownStartAt            DateTime?
 
+  // Portail self-service prestataire (voir InvitationalEventRequest) :
+  // demande d'origine (null pour un event créé directement par un admin,
+  // comme avant l'existence du portail), prestataire propriétaire une fois
+  // confirmé (identification Twitch — accès par session, voir
+  // lib/invitationalAccess.ts) et jeton d'accès "lien magique" (identification
+  // manuelle par email — accès par cookie scopé à cet event, jamais par
+  // session puisqu'aucun compte n'existe dans ce cas).
+  requestId          String?                   @unique
+  request            InvitationalEventRequest? @relation(fields: [requestId], references: [id])
+  ownerUserId        String?
+  ownerUser          User?                     @relation("InvitationalEventOwner", fields: [ownerUserId], references: [id])
+  partnerAccessToken String?                   @unique
+
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
   bets        InvitationalBet[]
+}
+
+enum InvitationalRequestStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum InvitationalIdentMethod {
+  TWITCH
+  MANUAL
+}
+
+/**
+ * Demande d'event Invitational/Prestataire soumise depuis le formulaire
+ * public de demande, avant toute création d'InvitationalEvent — la demande
+ * ne devient un event réel (via confirmInvitationalEventRequest, voir
+ * lib/invitationalRequests.ts) qu'une fois validée par un admin. Le format
+ * choisi ici est définitif : aucune route self-service ne permet de le
+ * modifier après confirmation (changement de format = passage par un admin,
+ * en dehors de ce portail).
+ */
+model InvitationalEventRequest {
+  id            String                     @id @default(cuid())
+  eventName     String
+  format        InvitationalFormat
+  twitchChannel String
+  deadline      DateTime
+  identMethod   InvitationalIdentMethod
+  // Renseignés pour identMethod = MANUAL (email obligatoire, sert à
+  // l'envoi du lien d'accès à la confirmation). Pour identMethod = TWITCH,
+  // le prestataire est déjà identifié via requesterUserId : ces deux champs
+  // restent facultatifs (juste informatifs pour l'admin qui valide).
+  clientName String?
+  email      String?
+
+  requesterUserId String?
+  requesterUser   User?   @relation("InvitationalEventRequester", fields: [requesterUserId], references: [id])
+
+  status           InvitationalRequestStatus @default(PENDING)
+  rejectionNote    String?
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  reviewedByUser   User?                     @relation("InvitationalEventReviewer", fields: [reviewedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  event InvitationalEvent?
+
+  @@index([status])
 }
 
 /**

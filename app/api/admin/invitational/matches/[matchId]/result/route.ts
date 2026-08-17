@@ -1,8 +1,10 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { declareInvitationalMatchResult, InvitationalResultError } from "@/lib/invitationalMatchResults";
+import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
 
 const resultSchema = z.object({
   winnerId: z.string().trim().min(1),
@@ -15,17 +17,29 @@ const resultSchema = z.object({
  * action qui déclenche la résolution des paris associés (voir
  * lib/invitationalMatchResults.ts). 100% manuel, pas de détection
  * automatique possible (ces events n'existent pas côté start.gg).
+ *
+ * Accessible à l'admin, mais aussi au prestataire propriétaire de l'event de
+ * ce match (portail self-service — voir lib/invitationalAccess.ts).
  */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ matchId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.isAdmin) {
+  const { matchId } = await params;
+  const match = await prisma.invitationalMatch.findUnique({ where: { id: matchId } });
+  if (!match) {
+    return NextResponse.json({ error: "Match introuvable." }, { status: 404 });
+  }
+
+  const jar = await cookies();
+  const access = await resolveInvitationalAccess(
+    match.eventId,
+    jar.get(partnerAccessCookieName(match.eventId))?.value,
+  );
+  if (!access) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  const { matchId } = await params;
   const body = await request.json().catch(() => null);
   const parsed = resultSchema.safeParse(body);
   if (!parsed.success) {

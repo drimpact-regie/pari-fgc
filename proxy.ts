@@ -8,7 +8,7 @@ const CANONICAL_HOST = "www.impactobet.fr";
 // Publiques quel que soit l'état de connexion : ni redirigées vers /login,
 // ni redirigées vers "/" si déjà connecté (page.tsx gère lui-même la
 // redirection des utilisateurs connectés qui visitent "/").
-const PUBLIC_ALWAYS_PATHS = ["/", "/streamer"];
+const PUBLIC_ALWAYS_PATHS = ["/", "/streamer", "/invitational/request"];
 // Publiques seulement si déconnecté : redirigées vers "/" une fois connecté
 // (pas besoin de revoir ces formulaires après authentification).
 const PUBLIC_PATHS = ["/login", "/register"];
@@ -64,7 +64,20 @@ export const proxy = auth((req) => {
     // directement par OBS, sans session navigateur — lecture seule, mêmes
     // données déjà publiques sur les pages event.
     pathname.startsWith("/overlay/") ||
-    pathname.startsWith("/api/invitational/overlay/");
+    pathname.startsWith("/api/invitational/overlay/") ||
+    // Portail self-service prestataire Invitational (voir
+    // lib/invitationalAccess.ts) : soumission de demande publique, et accès
+    // à SA page/API d'event pour un prestataire identifié manuellement (par
+    // email, donc sans session NextAuth — seulement le cookie d'accès posé
+    // par la route "claim"). Chaque route/page listée ci-dessous revérifie
+    // elle-même l'accès (admin, propriétaire connecté, ou cookie valide
+    // pour CET event) — ce bypass ne fait que laisser la requête atteindre
+    // ce contrôle, il ne l'affaiblit pas.
+    pathname.startsWith("/api/invitational/requests") ||
+    pathname.startsWith("/partner/invitational/") ||
+    pathname.startsWith("/api/partner/invitational/") ||
+    pathname.startsWith("/api/admin/invitational/events/") ||
+    pathname.startsWith("/api/admin/invitational/matches/");
 
   if (!isLoggedIn && !isPublic) {
     const loginUrl = new URL("/login", req.nextUrl.origin);

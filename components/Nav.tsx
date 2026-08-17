@@ -10,6 +10,12 @@ export default async function Nav() {
   const currentUser = session?.user
     ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
     : null;
+  // N'affiche "Mes events" que pour les comptes qui en possèdent au moins un
+  // (portail self-service prestataire) — évite d'encombrer la nav des ~30
+  // parieurs classiques qui n'ont jamais fait de demande.
+  const ownedInvitationalCount = session?.user?.id
+    ? await prisma.invitationalEvent.count({ where: { ownerUserId: session.user.id } })
+    : 0;
 
   return (
     <header
@@ -27,6 +33,11 @@ export default async function Nav() {
               LeaderBet
             </Link>
             {session.user.isAdmin && <AdminMenu />}
+            {ownedInvitationalCount > 0 && (
+              <Link href="/partner/invitational" className="hover:opacity-80">
+                Mes events
+              </Link>
+            )}
             {currentUser && (
               <span className="font-semibold" style={{ color: "var(--gold)" }}>
                 {currentUser.exBalance} Ex

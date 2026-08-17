@@ -1,9 +1,10 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrCreateEventCompetitor } from "@/lib/invitationalEvents";
+import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
 
 const competitorSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
@@ -28,17 +29,29 @@ const updateSchema = z.object({
  * pari d'un match — jamais le vainqueur/score ici, uniquement via
  * POST .../result (voir lib/invitationalMatchResults.ts), pour que le seul
  * geste qui déclenche la résolution des paris reste sans ambiguïté.
+ *
+ * Accessible à l'admin, mais aussi au prestataire propriétaire de l'event de
+ * ce match (portail self-service — voir lib/invitationalAccess.ts).
  */
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ matchId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.isAdmin) {
+  const { matchId } = await params;
+  const match = await prisma.invitationalMatch.findUnique({ where: { id: matchId } });
+  if (!match) {
+    return NextResponse.json({ error: "Match introuvable." }, { status: 404 });
+  }
+
+  const jar = await cookies();
+  const access = await resolveInvitationalAccess(
+    match.eventId,
+    jar.get(partnerAccessCookieName(match.eventId))?.value,
+  );
+  if (!access) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  const { matchId } = await params;
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
@@ -48,10 +61,6 @@ export async function PATCH(
     );
   }
 
-  const match = await prisma.invitationalMatch.findUnique({ where: { id: matchId } });
-  if (!match) {
-    return NextResponse.json({ error: "Match introuvable." }, { status: 404 });
-  }
   if (match.status === "COMPLETED") {
     return NextResponse.json(
       { error: "Ce match est déjà terminé, ses infos ne sont plus modifiables." },

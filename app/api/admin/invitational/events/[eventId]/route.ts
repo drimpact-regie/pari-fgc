@@ -1,9 +1,11 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeTwitchChannel } from "@/lib/normalize";
+import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
 
 const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PAST"]).optional(),
@@ -22,16 +24,24 @@ const updateSchema = z.object({
   rundownStartAt: z.string().trim().optional(),
 });
 
+/**
+ * Accessible à l'admin, mais aussi au prestataire propriétaire de cet event
+ * précis (portail self-service — voir lib/invitationalAccess.ts) : session
+ * du compte propriétaire (identification Twitch) ou cookie d'accès valide
+ * pour CET eventId (identification manuelle par email). Jamais de contrôle
+ * plus large — un prestataire ne peut agir que sur son propre event.
+ */
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ eventId: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.isAdmin) {
+  const { eventId } = await params;
+  const jar = await cookies();
+  const access = await resolveInvitationalAccess(eventId, jar.get(partnerAccessCookieName(eventId))?.value);
+  if (!access) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  const { eventId } = await params;
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
@@ -39,11 +49,6 @@ export async function PATCH(
       { error: parsed.error.issues[0]?.message ?? "Requête invalide." },
       { status: 400 },
     );
-  }
-
-  const existing = await prisma.invitationalEvent.findUnique({ where: { id: eventId } });
-  if (!existing) {
-    return NextResponse.json({ error: "Event introuvable." }, { status: 404 });
   }
 
   let rundownStartAt: Date | null | undefined;

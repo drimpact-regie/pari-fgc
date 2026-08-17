@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { listInvitationalEvents } from "@/lib/invitationalEvents";
+import { listInvitationalEventRequests } from "@/lib/invitationalRequests";
 import AddInvitationalEventForm from "@/components/AddInvitationalEventForm";
 import InvitationalEventStatusEditor from "@/components/InvitationalEventStatusEditor";
 import DeleteInvitationalEventButton from "@/components/DeleteInvitationalEventButton";
@@ -27,6 +28,7 @@ export default async function AdminInvitationalPage() {
   const events = await listInvitationalEvents();
   const activeEvents = events.filter((e) => e.status === "ACTIVE");
   const pastEvents = events.filter((e) => e.status === "PAST");
+  const pendingRequests = await listInvitationalEventRequests("PENDING");
 
   return (
     <div className="flex flex-col gap-4">
@@ -37,6 +39,13 @@ export default async function AdminInvitationalPage() {
           Excel/CSV puis gestion 100% manuelle depuis cette interface. Économie et classement
           séparés du reste du site.
         </p>
+        <Link
+          href="/admin/invitational/requests"
+          className="text-sm underline mt-2 inline-block"
+          style={{ color: "var(--accent)" }}
+        >
+          Demandes en attente ({pendingRequests.length})
+        </Link>
       </div>
 
       <EventTable title="Events actifs" events={activeEvents} emptyLabel="Aucun event actif." />
