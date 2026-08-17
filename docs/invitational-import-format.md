@@ -38,8 +38,15 @@ côté site.
 
 ### Onglet `Matchs` (obligatoire)
 
-Une ligne d'en-tête, puis une ligne par match. Colonnes attendues (l'ordre
-n'a pas d'importance, la casse et les accents ne comptent pas) :
+Une ligne d'en-tête, puis une ligne par match. La ligne d'en-tête n'est pas
+forcément la toute première ligne de l'onglet : le parseur cherche la
+première ligne contenant à la fois "Joueur A" et "Joueur B" (correspondance
+exacte après normalisation, jamais une sous-chaîne dans un texte libre) —
+les modèles d'exemple fournis pour chaque format placent une légende
+au-dessus de cette ligne, sans que ça gêne l'import.
+
+Colonnes attendues (l'ordre n'a pas d'importance, la casse et les accents
+ne comptent pas) :
 
 | Groupe | Ordre | Joueur A | Tag A | Pays A | Joueur B | Tag B | Pays B |
 |--------|-------|----------|-------|--------|----------|-------|--------|
@@ -69,6 +76,27 @@ Un même joueur peut apparaître sur plusieurs lignes (plusieurs matchs) :
 il est automatiquement dédupliqué par nom (insensible à la casse/aux
 espaces) à l'import, pour que sa série de victoires se cumule correctement
 au fil de l'event.
+
+#### Compétiteurs pas encore déterminés (`TBD_...`)
+
+Il n'existe pas de fonction "ajouter un match" une fois l'event importé —
+les formats à progression (bracket, suisse...) doivent donc déjà lister
+**tous** les tours dans le fichier d'import, y compris ceux dont les
+participants ne sont pas encore connus.
+
+Une cellule `Joueur A`/`Joueur B` commençant par le préfixe `TBD_`
+(insensible à la casse) est reconnue comme un slot **en attente**, pas
+comme un vrai joueur : elle porte une description libre affichée telle
+quelle côté admin (ex. `TBD_Vainqueur QF1` → "En attente : Vainqueur QF1").
+`Tag`/`Pays` sont ignorés pour cette cellule. Une ligne où les deux
+compétiteurs sont des placeholders `TBD_...` reste un match réel à créer
+— elle n'est pas traitée comme une ligne vide.
+
+Une fois le tour précédent joué, l'admin renseigne le vrai compétiteur
+depuis `/admin/invitational/[event]` (édition du match) : si le nom saisi
+correspond (insensible à la casse/aux espaces) à un compétiteur déjà
+présent dans l'event, il est réutilisé (sa série de victoires continue de
+s'accumuler) plutôt que dupliqué.
 
 ### Onglet `Rundown` (optionnel, jamais lu)
 

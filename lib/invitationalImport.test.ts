@@ -33,10 +33,84 @@ describe("parseInvitationalWorkbook — bracket format", () => {
       groupLabel: "Winners Semi-Final",
       orderIndex: 1,
       competitorA: { name: "SonicFox", tag: "Fly", countryCode: "US" },
+      placeholderA: null,
       competitorB: { name: "Leffen", tag: "TSM", countryCode: "SE" },
+      placeholderB: null,
     });
     // Empty tag/country cells become null, not empty strings.
     expect(result.matches[1].competitorA).toEqual({ name: "Kayos", tag: null, countryCode: "US" });
+  });
+});
+
+describe("parseInvitationalWorkbook — TBD_ placeholders", () => {
+  it("recognizes a TBD_ cell as a not-yet-determined competitor, not a real player", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "BRACKET_SINGLE"]],
+      Matchs: [
+        MATCH_HEADER,
+        ["Demi-finale", 1, "TBD_Vainqueur QF1", "", "", "TBD_Vainqueur QF2", "", ""],
+      ],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "bracket.xlsx");
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].competitorA).toBeNull();
+    expect(result.matches[0].placeholderA).toBe("Vainqueur QF1");
+    expect(result.matches[0].competitorB).toBeNull();
+    expect(result.matches[0].placeholderB).toBe("Vainqueur QF2");
+  });
+
+  it("is case-insensitive on the TBD_ prefix", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [MATCH_HEADER, ["", 1, "tbd_Table 1", "", "", "Real Player", "", ""]],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "event.xlsx");
+
+    expect(result.matches[0].competitorA).toBeNull();
+    expect(result.matches[0].placeholderA).toBe("Table 1");
+    expect(result.matches[0].competitorB).toEqual({ name: "Real Player", tag: null, countryCode: null });
+  });
+
+  it("falls back to a generic description for a bare TBD_ with nothing after it", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [MATCH_HEADER, ["", 1, "TBD_", "", "", "Real Player", "", ""]],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "event.xlsx");
+    expect(result.matches[0].placeholderA).toBe("À déterminer");
+  });
+
+  it("does not treat a row with only TBD_ placeholders as a blank row to skip", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "BRACKET_SINGLE"]],
+      Matchs: [
+        MATCH_HEADER,
+        ["Quart", 1, "Alice", "", "FR", "Bob", "", "US"],
+        ["Demi", 2, "TBD_Vainqueur QF1", "", "", "TBD_Vainqueur QF2", "", ""],
+      ],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "bracket.xlsx");
+    expect(result.matches).toHaveLength(2);
+  });
+
+  it("excludes TBD_ placeholders from the competitor roster (no fake player created)", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "BRACKET_SINGLE"]],
+      Matchs: [
+        MATCH_HEADER,
+        ["Quart", 1, "Alice", "", "FR", "Bob", "", "US"],
+        ["Demi", 2, "TBD_Vainqueur QF1", "", "", "TBD_Vainqueur QF2", "", ""],
+      ],
+    });
+
+    const { matches } = parseInvitationalWorkbook(buffer, "bracket.xlsx");
+    const roster = buildCompetitorRoster(matches);
+    expect(roster.map((c) => c.name).sort()).toEqual(["Alice", "Bob"]);
   });
 });
 
@@ -104,6 +178,23 @@ describe("parseInvitationalWorkbook — no-bracket list format", () => {
 
     const result = parseInvitationalWorkbook(buffer, "showmatch.xlsx");
     expect(result.matches).toHaveLength(2);
+  });
+});
+
+describe("parseInvitationalWorkbook — legend row above the header", () => {
+  it("finds the real header row even when a legend/instructions row sits above it", () => {
+    const buffer = makeWorkbookBuffer({
+      Info: [["Format", "LIST"]],
+      Matchs: [
+        ["Rappel : préfixe TBD_ pour un compétiteur pas encore connu. Tag/Pays optionnels."],
+        MATCH_HEADER,
+        ["", 1, "Player1", "", "", "Player2", "", ""],
+      ],
+    });
+
+    const result = parseInvitationalWorkbook(buffer, "with-legend.xlsx");
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].competitorA?.name).toBe("Player1");
   });
 });
 

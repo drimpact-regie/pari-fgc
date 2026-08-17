@@ -38,9 +38,14 @@ export async function GET(
       competitorA: m.competitorA
         ? { id: m.competitorA.id, name: m.competitorA.name, tag: m.competitorA.tag, countryCode: m.competitorA.countryCode }
         : null,
+      // Slot pas encore déterminé (import "TBD_...") : description libre à
+      // afficher côté overlay ("En attente : Vainqueur QF1") tant que
+      // competitorA/B reste null.
+      placeholderA: m.placeholderA,
       competitorB: m.competitorB
         ? { id: m.competitorB.id, name: m.competitorB.name, tag: m.competitorB.tag, countryCode: m.competitorB.countryCode }
         : null,
+      placeholderB: m.placeholderB,
       scoreA: m.scoreA,
       scoreB: m.scoreB,
       winnerId: m.winnerId,

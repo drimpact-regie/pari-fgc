@@ -18,7 +18,10 @@ interface Match {
   orderIndex: number;
   status: "NOT_OPEN" | "OPEN" | "CLOSED" | "COMPLETED";
   competitorA: Competitor | null;
+  /** Description d'un slot pas encore déterminé (import "TBD_..."), voir InvitationalMatch.placeholderA/B. */
+  placeholderA: string | null;
   competitorB: Competitor | null;
+  placeholderB: string | null;
   winnerId: string | null;
   scoreA: number | null;
   scoreB: number | null;
@@ -36,22 +39,33 @@ function CompetitorFields({
   value,
   onChange,
   disabled,
+  placeholder,
 }: {
   label: string;
   value: Competitor;
   onChange: (next: Competitor) => void;
   disabled: boolean;
+  /** Description d'un slot en attente ("Vainqueur QF1"...), affichée tant que le compétiteur n'est pas résolu. */
+  placeholder: string | null;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
         {label}
       </p>
+      {placeholder && (
+        <p
+          className="text-xs px-2 py-1 rounded italic"
+          style={{ background: "#fef3c7", color: "#78350f" }}
+        >
+          En attente : {placeholder}
+        </p>
+      )}
       <input
         className="input"
         value={value.name}
         onChange={(e) => onChange({ ...value, name: e.target.value })}
-        placeholder="Nom du joueur"
+        placeholder={placeholder ? "Nom une fois connu" : "Nom du joueur"}
         disabled={disabled}
       />
       <div className="flex gap-1.5">
@@ -116,10 +130,13 @@ export default function InvitationalMatchRow({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...(competitorA.id
+        // Envoyé dès qu'un nom est renseigné, que le compétiteur existe déjà
+        // (édition) ou pas encore (résolution d'un slot "en attente" — voir
+        // PATCH .../matches/[id], qui distingue les deux cas côté serveur).
+        ...(competitorA.name.trim()
           ? { competitorA: { name: competitorA.name, tag: competitorA.tag, countryCode: competitorA.countryCode } }
           : {}),
-        ...(competitorB.id
+        ...(competitorB.name.trim()
           ? { competitorB: { name: competitorB.name, tag: competitorB.tag, countryCode: competitorB.countryCode } }
           : {}),
         status,
@@ -133,6 +150,14 @@ export default function InvitationalMatchRow({
       setSaveError(data.error ?? "Erreur lors de l'enregistrement.");
       return;
     }
+
+    // Resynchronise l'état local (notamment le nouvel id si un slot "en
+    // attente" vient d'être résolu) sans attendre le prochain rendu serveur
+    // — sans ça, "Déclarer le résultat" resterait masqué jusqu'à un refresh
+    // supplémentaire (le composant garde son state local à key inchangée).
+    const data = await res.json();
+    if (data.match?.competitorA) setCompetitorA(data.match.competitorA);
+    if (data.match?.competitorB) setCompetitorB(data.match.competitorB);
 
     setSaved(true);
     router.refresh();
@@ -200,8 +225,20 @@ export default function InvitationalMatchRow({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <CompetitorFields label="Joueur A" value={competitorA} onChange={setCompetitorA} disabled={locked} />
-        <CompetitorFields label="Joueur B" value={competitorB} onChange={setCompetitorB} disabled={locked} />
+        <CompetitorFields
+          label="Joueur A"
+          value={competitorA}
+          onChange={setCompetitorA}
+          disabled={locked}
+          placeholder={!competitorA.id ? match.placeholderA : null}
+        />
+        <CompetitorFields
+          label="Joueur B"
+          value={competitorB}
+          onChange={setCompetitorB}
+          disabled={locked}
+          placeholder={!competitorB.id ? match.placeholderB : null}
+        />
       </div>
 
       {!locked && (

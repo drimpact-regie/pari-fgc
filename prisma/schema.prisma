@@ -390,8 +390,17 @@ model InvitationalMatch {
   orderIndex    Int
   competitorAId String?
   competitorA   InvitationalCompetitor? @relation("InvitationalMatchCompetitorA", fields: [competitorAId], references: [id])
+  // Rempli par l'import quand la cellule "Joueur A/B" commence par le
+  // préfixe "TBD_" (ex. "TBD_Vainqueur QF1") : le compétiteur n'est pas
+  // encore déterminé (round suivant d'un bracket, appariement suisse pas
+  // encore calculé...). Porte alors la description après le préfixe
+  // ("Vainqueur QF1"), affichée telle quelle côté admin plutôt que de créer
+  // un faux compétiteur nommé littéralement "TBD_...". Vidé dès que
+  // l'admin renseigne le vrai compétiteur (voir PATCH .../matches/[id]).
+  placeholderA  String?
   competitorBId String?
   competitorB   InvitationalCompetitor? @relation("InvitationalMatchCompetitorB", fields: [competitorBId], references: [id])
+  placeholderB  String?
   status        InvitationalMatchStatus @default(NOT_OPEN)
   winnerId      String?
   winner        InvitationalCompetitor? @relation("InvitationalMatchWinner", fields: [winnerId], references: [id])

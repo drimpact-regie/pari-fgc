@@ -14,7 +14,10 @@ export interface ParsedMatch {
   groupLabel: string | null;
   orderIndex: number;
   competitorA: ParsedCompetitor | null;
+  /** Description du compétiteur A pas encore déterminé (cellule "TBD_..."), voir parseCompetitorField. */
+  placeholderA: string | null;
   competitorB: ParsedCompetitor | null;
+  placeholderB: string | null;
 }
 
 export interface ParsedInvitationalImport {
@@ -90,14 +93,28 @@ function matchColumnIndexes(headerRow: unknown[]): Record<MatchColumnKey, number
     indexes[key] = idx;
   }
 
-  if (indexes.nomA === -1 || indexes.nomB === -1) {
-    throw new InvitationalImportError(
-      'Onglet "Matchs" : colonnes "Joueur A" et "Joueur B" introuvables. ' +
-        "Vérifie les en-têtes de colonnes (voir la documentation du format d'import).",
-    );
-  }
-
   return indexes;
+}
+
+/**
+ * Repère la ligne d'en-tête réelle de l'onglet "Matchs" — pas forcément la
+ * toute première ligne de la feuille : les modèles générés placent une
+ * légende (rappel de la convention "TBD_", sens de "Groupe" pour ce
+ * format...) au-dessus de la vraie ligne d'en-têtes, pour qu'elle reste
+ * visible sans avoir à ouvrir un onglet séparé. On cherche donc la première
+ * ligne contenant à la fois "Joueur A" et "Joueur B" (une correspondance
+ * exacte après normalisation, pas une sous-chaîne — une légende en texte
+ * libre ne matche donc jamais par erreur), plutôt que de supposer que
+ * l'en-tête est toujours en position 0.
+ */
+function findHeaderRowIndex(rows: unknown[][]): number {
+  for (let i = 0; i < rows.length; i++) {
+    const normalizedHeaders = rows[i].map(normalize);
+    const hasNomA = MATCH_COLUMNS.nomA.some((alias) => normalizedHeaders.includes(alias));
+    const hasNomB = MATCH_COLUMNS.nomB.some((alias) => normalizedHeaders.includes(alias));
+    if (hasNomA && hasNomB) return i;
+  }
+  return -1;
 }
 
 function cellString(row: unknown[], index: number): string | null {
@@ -108,18 +125,43 @@ function cellString(row: unknown[], index: number): string | null {
   return text === "" ? null : text;
 }
 
-function parseCompetitorCell(
+/** Préfixe fixe marquant un compétiteur pas encore déterminé (ex. "TBD_Vainqueur QF1"). */
+const TBD_PREFIX = /^tbd_/i;
+
+interface ParsedCompetitorField {
+  competitor: ParsedCompetitor | null;
+  /** Description après le préfixe "TBD_" (ex. "Vainqueur QF1"), null si la cellule n'est pas un placeholder. */
+  placeholder: string | null;
+}
+
+/**
+ * Une cellule "Joueur A/B" commençant par "TBD_" (insensible à la casse) ne
+ * désigne pas un vrai compétiteur mais un slot en attente (round suivant
+ * d'un bracket, appariement suisse pas encore calculé...) — voir
+ * ParsedMatch.placeholderA/B. Stockée comme description libre, jamais
+ * comme un faux nom de joueur en base (voir lib/invitationalEvents.ts).
+ */
+function parseCompetitorField(
   row: unknown[],
   nameIdx: number,
   tagIdx: number,
   countryIdx: number,
-): ParsedCompetitor | null {
+): ParsedCompetitorField {
   const name = cellString(row, nameIdx);
-  if (!name) return null;
+  if (!name) return { competitor: null, placeholder: null };
+
+  if (TBD_PREFIX.test(name)) {
+    const description = name.replace(TBD_PREFIX, "").trim();
+    return { competitor: null, placeholder: description || "À déterminer" };
+  }
+
   return {
-    name,
-    tag: cellString(row, tagIdx),
-    countryCode: cellString(row, countryIdx)?.toUpperCase().slice(0, 2) ?? null,
+    competitor: {
+      name,
+      tag: cellString(row, tagIdx),
+      countryCode: cellString(row, countryIdx)?.toUpperCase().slice(0, 2) ?? null,
+    },
+    placeholder: null,
   };
 }
 
@@ -128,14 +170,25 @@ function parseMatchRows(rows: unknown[][]): ParsedMatch[] {
     throw new InvitationalImportError('Onglet "Matchs" vide (aucune ligne de données).');
   }
 
-  const [headerRow, ...dataRows] = rows;
+  const headerIdx = findHeaderRowIndex(rows);
+  if (headerIdx === -1) {
+    throw new InvitationalImportError(
+      'Onglet "Matchs" : colonnes "Joueur A" et "Joueur B" introuvables. ' +
+        "Vérifie les en-têtes de colonnes (voir la documentation du format d'import).",
+    );
+  }
+  const headerRow = rows[headerIdx];
+  const dataRows = rows.slice(headerIdx + 1);
   const columns = matchColumnIndexes(headerRow);
 
   const matches: ParsedMatch[] = [];
   dataRows.forEach((row, i) => {
-    const competitorA = parseCompetitorCell(row, columns.nomA, columns.tagA, columns.paysA);
-    const competitorB = parseCompetitorCell(row, columns.nomB, columns.tagB, columns.paysB);
-    if (!competitorA && !competitorB) return; // ligne vide, ignorée silencieusement
+    const fieldA = parseCompetitorField(row, columns.nomA, columns.tagA, columns.paysA);
+    const fieldB = parseCompetitorField(row, columns.nomB, columns.tagB, columns.paysB);
+    // Ligne vide (aucun nom ni placeholder d'aucun côté), ignorée
+    // silencieusement — une ligne avec au moins un placeholder "TBD_" reste
+    // un match réel à créer, pas une ligne vide.
+    if (!fieldA.competitor && !fieldA.placeholder && !fieldB.competitor && !fieldB.placeholder) return;
 
     const rawOrder = columns.ordre !== -1 ? row[columns.ordre] : null;
     const orderIndex =
@@ -144,8 +197,10 @@ function parseMatchRows(rows: unknown[][]): ParsedMatch[] {
     matches.push({
       groupLabel: cellString(row, columns.groupe),
       orderIndex,
-      competitorA,
-      competitorB,
+      competitorA: fieldA.competitor,
+      placeholderA: fieldA.placeholder,
+      competitorB: fieldB.competitor,
+      placeholderB: fieldB.placeholder,
     });
   });
 

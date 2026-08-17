@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { findOrCreateEventCompetitor } from "@/lib/invitationalEvents";
 
 const competitorSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
@@ -52,22 +53,47 @@ export async function PATCH(
     );
   }
 
+  // Slot "en attente" (voir InvitationalMatch.placeholderA/B) : le
+  // renseigner pour la première fois crée ou réutilise un compétiteur de
+  // l'event (findOrCreateEventCompetitor — réutilise le même compétiteur
+  // que celui d'un match précédent s'il porte déjà ce nom, pour ne pas
+  // scinder sa série de victoires) et efface le placeholder. Une fois le
+  // compétiteur lié, les appels suivants éditent normalement son nom/tag/pays.
+  const matchData: { competitorAId?: string; placeholderA?: null; competitorBId?: string; placeholderB?: null } = {};
+
   if (parsed.data.competitorA && match.competitorAId) {
     await prisma.invitationalCompetitor.update({
       where: { id: match.competitorAId },
       data: parsed.data.competitorA,
     });
+  } else if (parsed.data.competitorA?.name) {
+    const competitor = await findOrCreateEventCompetitor(match.eventId, {
+      name: parsed.data.competitorA.name,
+      tag: parsed.data.competitorA.tag ?? null,
+      countryCode: parsed.data.competitorA.countryCode ?? null,
+    });
+    matchData.competitorAId = competitor.id;
+    matchData.placeholderA = null;
   }
+
   if (parsed.data.competitorB && match.competitorBId) {
     await prisma.invitationalCompetitor.update({
       where: { id: match.competitorBId },
       data: parsed.data.competitorB,
     });
+  } else if (parsed.data.competitorB?.name) {
+    const competitor = await findOrCreateEventCompetitor(match.eventId, {
+      name: parsed.data.competitorB.name,
+      tag: parsed.data.competitorB.tag ?? null,
+      countryCode: parsed.data.competitorB.countryCode ?? null,
+    });
+    matchData.competitorBId = competitor.id;
+    matchData.placeholderB = null;
   }
 
   const updated = await prisma.invitationalMatch.update({
     where: { id: matchId },
-    data: parsed.data.status !== undefined ? { status: parsed.data.status } : {},
+    data: { ...matchData, ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}) },
     include: { competitorA: true, competitorB: true },
   });
 

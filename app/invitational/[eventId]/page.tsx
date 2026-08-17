@@ -99,6 +99,8 @@ export default async function InvitationalEventPage({
                     competitorB={
                       match.competitorB && odds ? { ...match.competitorB, odds: odds.oddsB } : null
                     }
+                    placeholderA={match.competitorA ? null : match.placeholderA}
+                    placeholderB={match.competitorB ? null : match.placeholderB}
                     locked={match.status !== "OPEN"}
                     exBalance={exBalance}
                     existingBet={buildExistingBet(betByMatchId.get(match.id))}

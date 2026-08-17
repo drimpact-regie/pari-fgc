@@ -26,6 +26,9 @@ interface Props {
   matchId: string;
   competitorA: Competitor | null;
   competitorB: Competitor | null;
+  /** Description d'un slot pas encore déterminé (import "TBD_..."), affichée tant que le compétiteur correspondant est null. */
+  placeholderA?: string | null;
+  placeholderB?: string | null;
   /** true si le match n'est pas au statut OPEN (paris fermés côté site). */
   locked: boolean;
   exBalance: number;
@@ -47,6 +50,8 @@ export default function InvitationalBetCard({
   matchId,
   competitorA,
   competitorB,
+  placeholderA,
+  placeholderB,
   locked,
   exBalance,
   existingBet,
@@ -125,9 +130,14 @@ export default function InvitationalBetCard({
       )}
 
       {competitors.length !== 2 ? (
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          En attente de la désignation des deux compétiteurs.
-        </p>
+        <div className="text-sm flex flex-col gap-1" style={{ color: "var(--muted)" }}>
+          <p>En attente de la désignation des deux compétiteurs.</p>
+          {(placeholderA || placeholderB) && (
+            <p className="text-xs italic">
+              {[placeholderA, placeholderB].filter(Boolean).map((p) => `En attente : ${p}`).join(" · ")}
+            </p>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
           {competitors.map((competitor) => (

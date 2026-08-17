@@ -56,9 +56,11 @@ export async function createInvitationalEvent(input: {
           competitorAId: match.competitorA
             ? competitorIdByName.get(normalizeCompetitorKey(match.competitorA.name))
             : null,
+          placeholderA: match.placeholderA,
           competitorBId: match.competitorB
             ? competitorIdByName.get(normalizeCompetitorKey(match.competitorB.name))
             : null,
+          placeholderB: match.placeholderB,
         },
       });
     }
@@ -69,4 +71,29 @@ export async function createInvitationalEvent(input: {
 
 function normalizeCompetitorKey(name: string): string {
   return name.trim().toLowerCase();
+}
+
+/**
+ * Trouve un compétiteur existant de cet event par nom normalisé, sinon en
+ * crée un nouveau. Utilisé pour renseigner un slot "TBD_..." après coup
+ * (voir app/api/admin/invitational/matches/[matchId]/route.ts) : résoudre
+ * un placeholder vers un joueur déjà présent ailleurs dans l'event (ex. le
+ * vainqueur d'un tour précédent, déjà créé lors de son premier match) doit
+ * réutiliser le même compétiteur plutôt qu'en créer un doublon — sinon sa
+ * série de victoires (lib/invitationalOdds.ts) se retrouverait scindée
+ * entre deux entrées distinctes.
+ */
+export async function findOrCreateEventCompetitor(
+  eventId: string,
+  input: { name: string; tag: string | null; countryCode: string | null },
+): Promise<{ id: string }> {
+  const key = normalizeCompetitorKey(input.name);
+  const existing = await prisma.invitationalCompetitor.findMany({ where: { eventId } });
+  const match = existing.find((c) => normalizeCompetitorKey(c.name) === key);
+  if (match) return { id: match.id };
+
+  const created = await prisma.invitationalCompetitor.create({
+    data: { eventId, name: input.name, tag: input.tag, countryCode: input.countryCode },
+  });
+  return { id: created.id };
 }
