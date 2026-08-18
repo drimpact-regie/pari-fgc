@@ -55,15 +55,15 @@ export const OVERLAY_CANVAS_HEIGHT = 1080;
  * l'overlay reste utilisable sans configuration.
  */
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-  stage: { x: 760, y: 60 },
-  ft: { x: 1060, y: 68 },
+  stage: { x: 700, y: 40 },
+  ft: { x: 700, y: 90 },
   flagA: { x: 120, y: 160 },
   nameA: { x: 180, y: 150 },
   tagA: { x: 180, y: 195 },
   score: { x: 900, y: 150 },
-  flagB: { x: 1700, y: 160 },
-  nameB: { x: 1640, y: 150 },
-  tagB: { x: 1640, y: 195 },
+  flagB: { x: 1850, y: 160 },
+  nameB: { x: 1500, y: 150 },
+  tagB: { x: 1500, y: 195 },
 };
 
 function isFiniteNumber(value: unknown): value is number {

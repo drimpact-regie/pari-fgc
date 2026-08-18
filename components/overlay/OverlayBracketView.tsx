@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import InvitationalBracket, { type BracketColumn } from "@/components/InvitationalBracket";
-import { countryCodeToFlagEmoji } from "@/lib/flags";
+import CountryBadge from "@/components/overlay/CountryBadge";
 
 interface OverlayCompetitor {
   name: string;
@@ -124,13 +124,12 @@ function UpcomingPanel({ upcoming }: { upcoming: UpcomingMatch[] }) {
       </p>
       {upcoming.map((m) => {
         const range = formatTimeRange(m.startMin, m.startMax);
-        const flagA = m.competitorA ? countryCodeToFlagEmoji(m.competitorA.countryCode) : null;
-        const flagB = m.competitorB ? countryCodeToFlagEmoji(m.competitorB.countryCode) : null;
         return (
           <div key={m.id} className="flex items-center justify-between gap-3" style={{ fontSize: "0.8rem", color: "#fff" }}>
-            <span>
-              {flagA && `${flagA} `}
-              {competitorName(m.competitorA)} <span style={{ color: "#6b7280" }}>vs</span> {flagB && `${flagB} `}
+            <span className="inline-flex items-center gap-1.5">
+              {m.competitorA?.countryCode && <CountryBadge countryCode={m.competitorA.countryCode} fontSize="0.65rem" />}
+              {competitorName(m.competitorA)} <span style={{ color: "#6b7280" }}>vs</span>{" "}
+              {m.competitorB?.countryCode && <CountryBadge countryCode={m.competitorB.countryCode} fontSize="0.65rem" />}
               {competitorName(m.competitorB)}
             </span>
             {range && <span style={{ color: "#9ca3af", fontWeight: 600, whiteSpace: "nowrap" }}>{range}</span>}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import localFont from "next/font/local";
 
-import { countryCodeToFlagEmoji } from "@/lib/flags";
+import CountryBadge from "@/components/overlay/CountryBadge";
 import {
   mergeOverlayLayout,
   OVERLAY_CANVAS_HEIGHT,
@@ -127,75 +127,87 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
   }
 
   const layout = mergeOverlayLayout(data?.overlayLayout);
-  const flagA = match.competitorA ? countryCodeToFlagEmoji(match.competitorA.countryCode) : null;
-  const flagB = match.competitorB ? countryCodeToFlagEmoji(match.competitorB.countryCode) : null;
 
   return (
-    <div
-      className={hansonBold.className}
-      style={{
-        position: "fixed",
-        inset: 0,
-        overflow: "hidden",
-        containerType: "inline-size",
-      }}
-    >
-      {data?.overlayBackgroundUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- image en data: URL (base64), incompatible avec next/image (optimisation d'URL distante).
-        <img
-          src={data.overlayBackgroundUrl}
-          alt=""
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      )}
-
-      {match.groupLabel && (
-        <Text layout={layout} elementKey="stage" size="1.6cqw" color="#fbbf24" weight={700}>
-          {match.groupLabel}
-        </Text>
-      )}
-      {match.ftGames && (
-        <Text layout={layout} elementKey="ft" size="1.3cqw" color="#9ca3af" weight={600}>
-          FT{match.ftGames}
-        </Text>
-      )}
-
-      {flagA && (
-        <span style={{ ...positionStyle(layout.flagA), fontSize: "2.4cqw" }}>{flagA}</span>
-      )}
-      <Text layout={layout} elementKey="nameA" size="2.4cqw">
-        {match.competitorA?.name ?? "?"}
-      </Text>
-      {match.competitorA?.tag && (
-        <Text layout={layout} elementKey="tagA" size="1.4cqw" color="#d1d5db" weight={600}>
-          {match.competitorA.tag}
-        </Text>
-      )}
-
-      {flagB && (
-        <span style={{ ...positionStyle(layout.flagB), fontSize: "2.4cqw" }}>{flagB}</span>
-      )}
-      <Text layout={layout} elementKey="nameB" size="2.4cqw">
-        {match.competitorB?.name ?? "?"}
-      </Text>
-      {match.competitorB?.tag && (
-        <Text layout={layout} elementKey="tagB" size="1.4cqw" color="#d1d5db" weight={600}>
-          {match.competitorB.tag}
-        </Text>
-      )}
-
-      <span
+    // Conteneur extérieur : occupe toute la Browser Source OBS, quelle que
+    // soit sa taille/son ratio réel, et centre un cadre verrouillé en 16:9
+    // à l'intérieur (letterboxing sur les côtés/haut-bas si la source n'est
+    // pas exactement 16:9) — sans ce verrouillage, les positions et tailles
+    // de texte (en % / cqw du cadre) dérivaient visiblement dès que la
+    // Browser Source n'était pas configurée en 1920x1080 pile.
+    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      <div
+        className={hansonBold.className}
         style={{
-          ...positionStyle(layout.score),
-          fontSize: "3cqw",
-          fontWeight: 900,
-          color: "#fff",
-          textShadow: TEXT_SHADOW,
-          whiteSpace: "nowrap",
+          position: "relative",
+          width: "100%",
+          aspectRatio: "16/9",
+          maxHeight: "100%",
+          overflow: "hidden",
+          containerType: "inline-size",
         }}
       >
-        {match.competitorA?.score ?? 0} — {match.competitorB?.score ?? 0}
-      </span>
+        {data?.overlayBackgroundUrl && (
+          // eslint-disable-next-line @next/next/no-img-element -- image en data: URL (base64), incompatible avec next/image (optimisation d'URL distante).
+          <img
+            src={data.overlayBackgroundUrl}
+            alt=""
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        )}
+
+        {match.groupLabel && (
+          <Text layout={layout} elementKey="stage" size="1.6cqw" color="#fbbf24" weight={700}>
+            {match.groupLabel}
+          </Text>
+        )}
+        {match.ftGames && (
+          <Text layout={layout} elementKey="ft" size="1.3cqw" color="#9ca3af" weight={600}>
+            FT{match.ftGames}
+          </Text>
+        )}
+
+        {match.competitorA?.countryCode && (
+          <span style={positionStyle(layout.flagA)}>
+            <CountryBadge countryCode={match.competitorA.countryCode} fontSize="1.1cqw" />
+          </span>
+        )}
+        <Text layout={layout} elementKey="nameA" size="2.4cqw">
+          {match.competitorA?.name ?? "?"}
+        </Text>
+        {match.competitorA?.tag && (
+          <Text layout={layout} elementKey="tagA" size="1.4cqw" color="#d1d5db" weight={600}>
+            {match.competitorA.tag}
+          </Text>
+        )}
+
+        {match.competitorB?.countryCode && (
+          <span style={positionStyle(layout.flagB)}>
+            <CountryBadge countryCode={match.competitorB.countryCode} fontSize="1.1cqw" />
+          </span>
+        )}
+        <Text layout={layout} elementKey="nameB" size="2.4cqw">
+          {match.competitorB?.name ?? "?"}
+        </Text>
+        {match.competitorB?.tag && (
+          <Text layout={layout} elementKey="tagB" size="1.4cqw" color="#d1d5db" weight={600}>
+            {match.competitorB.tag}
+          </Text>
+        )}
+
+        <span
+          style={{
+            ...positionStyle(layout.score),
+            fontSize: "3cqw",
+            fontWeight: 900,
+            color: "#fff",
+            textShadow: TEXT_SHADOW,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {match.competitorA?.score ?? 0} — {match.competitorB?.score ?? 0}
+        </span>
+      </div>
     </div>
   );
 }

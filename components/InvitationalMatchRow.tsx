@@ -95,6 +95,35 @@ function CompetitorFields({
   );
 }
 
+function ScoreStepper({
+  label,
+  value,
+  onDecrement,
+  onIncrement,
+}: {
+  label: string;
+  value: number;
+  onDecrement: () => void;
+  onIncrement: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs" style={{ color: "var(--muted)" }}>
+        {label}
+      </span>
+      <button type="button" className="btn text-xs" style={{ width: "1.75rem", padding: 0 }} onClick={onDecrement}>
+        −
+      </button>
+      <span className="text-sm font-semibold" style={{ minWidth: "1.5rem", textAlign: "center" }}>
+        {value}
+      </span>
+      <button type="button" className="btn text-xs" style={{ width: "1.75rem", padding: 0 }} onClick={onIncrement}>
+        +
+      </button>
+    </div>
+  );
+}
+
 export default function InvitationalMatchRow({
   match,
   eventId,
@@ -118,6 +147,7 @@ export default function InvitationalMatchRow({
     match.competitorB ?? { id: "", name: "", tag: null, countryCode: null },
   );
   const [status, setStatus] = useState<Match["status"]>(match.status);
+  const [groupLabel, setGroupLabel] = useState(match.groupLabel ?? "");
   const [ftGames, setFtGames] = useState(match.ftGames != null ? String(match.ftGames) : "");
   const [roundsPerGame, setRoundsPerGame] = useState(match.roundsPerGame != null ? String(match.roundsPerGame) : "");
   const [verifManette, setVerifManette] = useState(
@@ -127,9 +157,16 @@ export default function InvitationalMatchRow({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Score en direct : évolue au fil du set (0..FT), indépendamment de la
+  // déclaration du vainqueur ci-dessous — enregistré immédiatement à chaque
+  // clic (pas de bouton "Enregistrer" séparé) pour que l'overlay OBS reflète
+  // le score en quelques secondes pendant que le match se joue.
+  const [scoreA, setScoreA] = useState(match.scoreA ?? 0);
+  const [scoreB, setScoreB] = useState(match.scoreB ?? 0);
+  const [scoreSaving, setScoreSaving] = useState(false);
+  const [scoreError, setScoreError] = useState<string | null>(null);
+
   const [winnerId, setWinnerId] = useState("");
-  const [scoreA, setScoreA] = useState("");
-  const [scoreB, setScoreB] = useState("");
   const [declaring, setDeclaring] = useState(false);
   const [declareError, setDeclareError] = useState<string | null>(null);
 
@@ -152,6 +189,7 @@ export default function InvitationalMatchRow({
           ? { competitorB: { name: competitorB.name, tag: competitorB.tag, countryCode: competitorB.countryCode } }
           : {}),
         status,
+        groupLabel: groupLabel.trim() === "" ? null : groupLabel.trim(),
         ftGames: ftGames.trim() === "" ? null : Number(ftGames),
         roundsPerGame: roundsPerGame.trim() === "" ? null : Number(roundsPerGame),
         verifManette: verifManette === "" ? null : verifManette === "oui",
@@ -178,6 +216,37 @@ export default function InvitationalMatchRow({
     router.refresh();
   }
 
+  async function bumpScore(side: "A" | "B", delta: number) {
+    const max = match.ftGames ?? Infinity;
+    const current = side === "A" ? scoreA : scoreB;
+    const next = Math.min(Math.max(current + delta, 0), max);
+    if (next === current) return;
+
+    const nextScoreA = side === "A" ? next : scoreA;
+    const nextScoreB = side === "B" ? next : scoreB;
+    if (side === "A") setScoreA(next);
+    else setScoreB(next);
+
+    setScoreSaving(true);
+    setScoreError(null);
+    const res = await fetch(`/api/admin/invitational/matches/${match.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scoreA: nextScoreA, scoreB: nextScoreB }),
+    });
+    setScoreSaving(false);
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setScoreError(data.error ?? "Erreur lors de la mise à jour du score.");
+      // Repart de la valeur d'avant le clic pour rester cohérent avec ce que le serveur a réellement.
+      if (side === "A") setScoreA(current);
+      else setScoreB(current);
+      return;
+    }
+    router.refresh();
+  }
+
   async function handleDeclare(e: React.FormEvent) {
     e.preventDefault();
     if (!winnerId) {
@@ -190,11 +259,7 @@ export default function InvitationalMatchRow({
     const res = await fetch(`/api/admin/invitational/matches/${match.id}/result`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        winnerId,
-        scoreA: scoreA.trim() === "" ? null : Number(scoreA),
-        scoreB: scoreB.trim() === "" ? null : Number(scoreB),
-      }),
+      body: JSON.stringify({ winnerId, scoreA, scoreB }),
     });
 
     setDeclaring(false);
@@ -260,6 +325,16 @@ export default function InvitationalMatchRow({
       {!locked && (
         <div className="flex flex-wrap items-end gap-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
           <label className="text-xs">
+            Groupe / étape
+            <input
+              className="input mt-1"
+              style={{ width: "10rem" }}
+              value={groupLabel}
+              onChange={(e) => setGroupLabel(e.target.value)}
+              placeholder="Winners Final"
+            />
+          </label>
+          <label className="text-xs">
             Format (FT)
             <input
               className="input mt-1"
@@ -308,6 +383,29 @@ export default function InvitationalMatchRow({
         </div>
       )}
 
+      {!locked && Boolean(competitorA.id) && Boolean(competitorB.id) && (
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+          <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+            Score en direct
+          </p>
+          <ScoreStepper label={competitorA.name || "Joueur A"} value={scoreA} onDecrement={() => bumpScore("A", -1)} onIncrement={() => bumpScore("A", 1)} />
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            —
+          </span>
+          <ScoreStepper label={competitorB.name || "Joueur B"} value={scoreB} onDecrement={() => bumpScore("B", -1)} onIncrement={() => bumpScore("B", 1)} />
+          {scoreSaving && (
+            <span className="text-xs" style={{ color: "var(--muted)" }}>
+              ...
+            </span>
+          )}
+          {scoreError && (
+            <span className="text-xs" style={{ color: "var(--lose)" }}>
+              {scoreError}
+            </span>
+          )}
+        </div>
+      )}
+
       {locked ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>
           Vainqueur : <strong>{match.winnerId === match.competitorA?.id ? competitorA.name : competitorB.name}</strong>
@@ -316,7 +414,7 @@ export default function InvitationalMatchRow({
       ) : canDeclareResult ? (
         <form onSubmit={handleDeclare} className="flex flex-col gap-2 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
           <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-            Déclarer le résultat (déclenche la résolution des paris)
+            Déclarer le résultat (déclenche la résolution des paris) — score actuel : {scoreA} - {scoreB}
           </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs">
@@ -326,14 +424,6 @@ export default function InvitationalMatchRow({
                 <option value={competitorA.id}>{competitorA.name || "Joueur A"}</option>
                 <option value={competitorB.id}>{competitorB.name || "Joueur B"}</option>
               </select>
-            </label>
-            <label className="text-xs">
-              Score A
-              <input className="input mt-1" style={{ width: "4rem" }} value={scoreA} onChange={(e) => setScoreA(e.target.value)} inputMode="numeric" />
-            </label>
-            <label className="text-xs">
-              Score B
-              <input className="input mt-1" style={{ width: "4rem" }} value={scoreB} onChange={(e) => setScoreB(e.target.value)} inputMode="numeric" />
             </label>
             <button type="submit" className="btn btn-primary text-xs" disabled={declaring}>
               {declaring ? "..." : "Déclarer le résultat"}

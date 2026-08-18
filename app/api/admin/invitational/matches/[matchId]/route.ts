@@ -16,19 +16,29 @@ const updateSchema = z.object({
   competitorA: competitorSchema.optional(),
   competitorB: competitorSchema.optional(),
   status: z.enum(["NOT_OPEN", "OPEN", "CLOSED", "COMPLETED"]).optional(),
+  // Étape/round affiché sur l'overlay ("stage") — éditable ici même si
+  // l'import ne l'a pas renseigné (colonne "Groupe" absente/vide) ou pour
+  // le corriger après coup.
+  groupLabel: z.string().trim().max(80).nullable().optional(),
   // Structure du set — alimente l'estimation d'horaires côté overlay (voir
   // lib/invitationalRundown.ts), éditable même si l'import ne l'a pas
   // renseignée ou pour la corriger après coup.
   ftGames: z.number().int().positive().nullable().optional(),
   roundsPerGame: z.number().int().positive().nullable().optional(),
   verifManette: z.boolean().nullable().optional(),
+  // Score en direct (voir components/InvitationalMatchRow.tsx) : évolue au
+  // fil du set (0..ftGames), distinct de la déclaration du vainqueur —
+  // seule POST .../result déclenche la résolution des paris.
+  scoreA: z.number().int().nonnegative().nullable().optional(),
+  scoreB: z.number().int().nonnegative().nullable().optional(),
 });
 
 /**
- * Édite les infos affichage (joueur/tag/pays) et le statut d'ouverture au
- * pari d'un match — jamais le vainqueur/score ici, uniquement via
- * POST .../result (voir lib/invitationalMatchResults.ts), pour que le seul
- * geste qui déclenche la résolution des paris reste sans ambiguïté.
+ * Édite les infos affichage (joueur/tag/pays), le statut d'ouverture au
+ * pari, l'étape/structure du set, et le score en direct (voir plus haut)
+ * — jamais le VAINQUEUR ici, uniquement via POST .../result (voir
+ * lib/invitationalMatchResults.ts), pour que le seul geste qui déclenche la
+ * résolution des paris reste sans ambiguïté.
  *
  * Accessible à l'admin, mais aussi au prestataire propriétaire de l'event de
  * ce match (portail self-service — voir lib/invitationalAccess.ts).
@@ -111,9 +121,12 @@ export async function PATCH(
     data: {
       ...matchData,
       ...(parsed.data.status !== undefined ? { status: parsed.data.status } : {}),
+      ...(parsed.data.groupLabel !== undefined ? { groupLabel: parsed.data.groupLabel || null } : {}),
       ...(parsed.data.ftGames !== undefined ? { ftGames: parsed.data.ftGames } : {}),
       ...(parsed.data.roundsPerGame !== undefined ? { roundsPerGame: parsed.data.roundsPerGame } : {}),
       ...(parsed.data.verifManette !== undefined ? { verifManette: parsed.data.verifManette } : {}),
+      ...(parsed.data.scoreA !== undefined ? { scoreA: parsed.data.scoreA } : {}),
+      ...(parsed.data.scoreB !== undefined ? { scoreB: parsed.data.scoreB } : {}),
     },
     include: { competitorA: true, competitorB: true },
   });
