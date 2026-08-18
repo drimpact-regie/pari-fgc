@@ -13,9 +13,6 @@ import {
 } from "@/lib/invitationalOverlayLayout";
 import { MAX_OVERLAY_BACKGROUND_BASE64_LENGTH } from "@/lib/invitationalOverlayImage";
 
-const PREVIEW_WIDTH = 480;
-const PREVIEW_HEIGHT = 270; // 480 * 1080/1920, ratio 16:9
-
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -194,18 +191,28 @@ export default function InvitationalOverlayLayoutEditor({
 }
 
 /**
- * Aperçu léger (pas d'éditeur drag-and-drop) : miniature du fond à l'échelle
- * 1/4 avec le libellé de chaque élément positionné en CSS pur (mêmes
- * pourcentages que le rendu overlay réel) — assez pour valider un
- * positionnement sans avoir à ouvrir la page overlay séparément.
+ * Aperçu léger (pas d'éditeur drag-and-drop) : miniature du fond avec le
+ * libellé de chaque élément positionné en CSS pur (mêmes pourcentages que
+ * le rendu overlay réel) — assez pour valider un positionnement sans avoir
+ * à ouvrir la page overlay séparément.
+ *
+ * Largeur responsive (100% du conteneur, plafonnée à 40rem) plutôt qu'une
+ * largeur fixe en pixels : une largeur fixe déborde sur un écran étroit
+ * (mobile) et écrase l'affichage. Le ratio 16:9 est lui gardé fixe (voir
+ * aspectRatio) pour que les pourcentages tombent au même endroit que sur le
+ * rendu overlay réel — voir components/overlay/OverlayMatchView.tsx, même
+ * technique. La taille du texte suit la largeur réelle du conteneur (cqw)
+ * pour rester lisible aussi bien en petit qu'en grand.
  */
 function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layout: OverlayLayout }) {
   return (
     <div
-      className="rounded-md overflow-hidden relative shrink-0"
+      className="rounded-md overflow-hidden relative"
       style={{
-        width: PREVIEW_WIDTH,
-        height: PREVIEW_HEIGHT,
+        width: "100%",
+        maxWidth: "40rem",
+        aspectRatio: "16/9",
+        containerType: "inline-size",
         background: backgroundUrl ? undefined : "repeating-conic-gradient(#1f2937 0% 25%, #111827 0% 50%) 0 0 / 20px 20px",
       }}
     >
@@ -216,11 +223,13 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
       {OVERLAY_ELEMENT_KEYS.map((key) => (
         <span
           key={key}
-          className="absolute px-1 rounded text-[9px] font-semibold whitespace-nowrap"
+          className="absolute px-1 py-0.5 rounded font-semibold whitespace-nowrap"
           style={{
             left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
             top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
-            background: "rgba(0,0,0,0.6)",
+            fontSize: "2.2cqw",
+            lineHeight: 1.4,
+            background: "rgba(0,0,0,0.7)",
             color: "#fbbf24",
           }}
         >
