@@ -91,5 +91,11 @@ export const proxy = auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // /flags et /templates : fichiers statiques servis depuis public/ (drapeaux
+  // SVG de l'overlay, modèles Excel d'import) — au même titre que
+  // _next/static, ce sont des assets sans notion de session, qui ne doivent
+  // jamais passer par la redirection /login (repéré via un drapeau qui
+  // redirigeait silencieusement vers /login au lieu de s'afficher sur
+  // l'overlay OBS, chargé sans session navigateur).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|flags/|templates/).*)"],
 };
