@@ -13,12 +13,22 @@ function competitorView(c: { name: string; tag: string | null; countryCode: stri
 }
 
 /**
+ * Nombre de prochains matchs / gagnants de paris récents renvoyés pour le
+ * bandeau défilant du bas de l'overlay (voir components/overlay/OverlayBracketView.tsx)
+ * — un simple panneau fixe n'en affichait que 4 (assez pour tenir sans
+ * scroll) ; un bandeau qui défile peut en montrer bien plus sans jamais
+ * paraître vide même en fin d'event, quand peu de matchs restent à venir.
+ */
+const TICKER_ITEM_LIMIT = 10;
+
+/**
  * Endpoint public en lecture seule pour l'overlay OBS "bracket / classement"
  * (/overlay/invitational/[eventId]/bracket) — voir Partie 3 du prompt
  * overlay. Renvoie soit un arbre de bracket (formats BRACKET_SINGLE/DOUBLE),
- * soit un classement + liste de matchs (autres formats), plus les 4
- * prochains matchs avec une estimation d'horaire (même formule que le
- * Rundown Excel, voir lib/invitationalRundown.ts).
+ * soit un classement + liste de matchs (autres formats), plus les prochains
+ * matchs avec une estimation d'horaire (même formule que le Rundown Excel,
+ * voir lib/invitationalRundown.ts) et les gagnants de paris récents — les
+ * deux alimentent le bandeau défilant du bas de l'overlay.
  */
 export async function GET(
   request: Request,
@@ -99,7 +109,7 @@ export async function GET(
 
     upcoming = matches
       .filter((m) => m.status !== "COMPLETED")
-      .slice(0, 4)
+      .slice(0, TICKER_ITEM_LIMIT)
       .map((m) => {
         const estimate = scheduleById.get(m.id);
         return {
@@ -114,7 +124,7 @@ export async function GET(
   } else {
     upcoming = matches
       .filter((m) => m.status !== "COMPLETED")
-      .slice(0, 4)
+      .slice(0, TICKER_ITEM_LIMIT)
       .map((m) => ({
         id: m.id,
         groupLabel: m.groupLabel,
@@ -125,6 +135,24 @@ export async function GET(
       }));
   }
 
+  // Gagnants de paris récents, pour le bandeau défilant — aucune donnée
+  // personnelle affichée : le pseudo (site, ou pseudo Twitch si le compte
+  // vient d'un lien Twitch — voir lib/users.ts, ensureUserByTwitchId
+  // initialise déjà `username` avec le pseudo Twitch à la création du
+  // compte) et le montant gagné, déjà publics via le classement/l'historique
+  // de paris. predictedCompetitorName est un instantané pris au moment du
+  // pari (voir schema.prisma) : reste correct même si le nom du compétiteur
+  // a changé depuis côté InvitationalCompetitor.
+  const recentWinners = await prisma.invitationalBet.findMany({
+    where: { eventId, status: "WON" },
+    orderBy: { resolvedAt: "desc" },
+    take: TICKER_ITEM_LIMIT,
+    include: {
+      user: { select: { username: true } },
+      match: { select: { groupLabel: true, competitorA: true, competitorB: true } },
+    },
+  });
+
   return NextResponse.json({
     event: { id: event.id, name: event.name, format: event.format },
     isBracketFormat,
@@ -132,6 +160,15 @@ export async function GET(
     standings,
     matches: matchList,
     upcoming,
+    recentWinners: recentWinners.map((bet) => ({
+      id: bet.id,
+      username: bet.user.username,
+      predictedCompetitorName: bet.predictedCompetitorName,
+      pointsAwarded: bet.pointsAwarded,
+      matchGroupLabel: bet.match.groupLabel,
+      competitorA: competitorView(bet.match.competitorA),
+      competitorB: competitorView(bet.match.competitorB),
+    })),
     bracketOverlayLayout: mergeBracketOverlayLayout(event.bracketOverlayLayout),
   });
 }

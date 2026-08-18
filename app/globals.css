@@ -76,3 +76,16 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* Bandeau défilant de l'overlay OBS "bracket/classement" (voir
+   components/overlay/OverlayBracketView.tsx) : la liste d'items est dupliquée
+   une fois côté composant, et cette animation ne fait que translater de
+   -50% (la largeur d'une seule copie) pour boucler sans à-coup. */
+@keyframes invitational-ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}

@@ -45,6 +45,16 @@ interface MatchListEntry {
   status: "NOT_OPEN" | "OPEN" | "CLOSED" | "COMPLETED";
 }
 
+interface RecentWinner {
+  id: string;
+  username: string;
+  predictedCompetitorName: string;
+  pointsAwarded: number;
+  matchGroupLabel: string | null;
+  competitorA: OverlayCompetitor | null;
+  competitorB: OverlayCompetitor | null;
+}
+
 interface OverlayBracketData {
   event: { id: string; name: string; format: string };
   isBracketFormat: boolean;
@@ -52,6 +62,7 @@ interface OverlayBracketData {
   standings: StandingsRow[] | null;
   matches: MatchListEntry[] | null;
   upcoming: UpcomingMatch[];
+  recentWinners: RecentWinner[];
   bracketOverlayLayout: BracketOverlayLayout;
 }
 
@@ -152,37 +163,97 @@ function MatchListTable({ matches }: { matches: MatchListEntry[] }) {
   );
 }
 
-function UpcomingPanel({ upcoming }: { upcoming: UpcomingMatch[] }) {
-  if (upcoming.length === 0) return null;
+type TickerItem =
+  | { kind: "upcoming"; key: string; match: UpcomingMatch }
+  | { kind: "winner"; key: string; winner: RecentWinner };
+
+/**
+ * Bandeau du bas de l'overlay bracket, entre matchs à venir et gagnants de
+ * paris récents — voir Partie 1 du prompt overlay bracket. Les deux listes
+ * sont entrelacées (un match, un gagnant, un match...) plutôt que montrées
+ * en deux blocs séparés : ça mélange naturellement les deux contenus au fil
+ * du défilement sans minuterie JS pour "alterner", une simple animation CSS
+ * en boucle suffit.
+ */
+function buildTickerItems(upcoming: UpcomingMatch[], recentWinners: RecentWinner[]): TickerItem[] {
+  const items: TickerItem[] = [];
+  const max = Math.max(upcoming.length, recentWinners.length);
+  for (let i = 0; i < max; i++) {
+    if (upcoming[i]) items.push({ kind: "upcoming", key: `u-${upcoming[i].id}`, match: upcoming[i] });
+    if (recentWinners[i]) items.push({ kind: "winner", key: `w-${recentWinners[i].id}`, winner: recentWinners[i] });
+  }
+  return items;
+}
+
+function TickerCard({ item }: { item: TickerItem }) {
+  if (item.kind === "upcoming") {
+    const range = formatTimeRange(item.match.startMin, item.match.startMax);
+    return (
+      <div className="inline-flex items-center gap-3 px-5" style={{ color: "#fff", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.7rem", fontWeight: 800, color: "#fbbf24", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          Prochain
+        </span>
+        <span className="inline-flex items-center gap-1.5" style={{ fontSize: "0.85rem" }}>
+          {item.match.competitorA?.countryCode && <CountryBadge countryCode={item.match.competitorA.countryCode} fontSize="0.65rem" />}
+          {competitorName(item.match.competitorA)} <span style={{ color: "#6b7280" }}>vs</span>{" "}
+          {item.match.competitorB?.countryCode && <CountryBadge countryCode={item.match.competitorB.countryCode} fontSize="0.65rem" />}
+          {competitorName(item.match.competitorB)}
+        </span>
+        {range && <span style={{ fontSize: "0.8rem", color: "#9ca3af", fontWeight: 600 }}>{range}</span>}
+      </div>
+    );
+  }
+
+  const { winner } = item;
+  return (
+    <div className="inline-flex items-center gap-2 px-5" style={{ color: "#fff", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: "0.7rem", fontWeight: 800, color: "#22c55e", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        Pari gagné
+      </span>
+      <span style={{ fontSize: "0.85rem" }}>
+        <strong>{winner.username}</strong> a gagné <strong style={{ color: "#22c55e" }}>{winner.pointsAwarded} Ex</strong> sur{" "}
+        {winner.predictedCompetitorName}
+        {winner.competitorA && winner.competitorB && (
+          <span style={{ color: "#9ca3af" }}>
+            {" "}
+            ({competitorName(winner.competitorA)} vs {competitorName(winner.competitorB)})
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function Ticker({ upcoming, recentWinners }: { upcoming: UpcomingMatch[]; recentWinners: RecentWinner[] }) {
+  const items = buildTickerItems(upcoming, recentWinners);
+  if (items.length === 0) return null;
+
+  // Vitesse proportionnelle au nombre d'items (secondes fixes par item) —
+  // sinon un event avec beaucoup de contenu défilerait aussi vite qu'un
+  // event avec peu de contenu, illisible dans le premier cas.
+  const durationSeconds = items.length * 4;
+
   return (
     <div
-      className="flex flex-col gap-2 px-4 py-3 rounded-lg"
       style={{
         position: "absolute",
-        left: "2%",
-        bottom: "2%",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        overflow: "hidden",
         background: "rgba(11,13,18,0.72)",
         backdropFilter: "blur(4px)",
-        minWidth: "18rem",
+        padding: "0.6rem 0",
       }}
     >
-      <p style={{ fontSize: "0.75rem", fontWeight: 800, color: "#fbbf24", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-        Prochains matchs
-      </p>
-      {upcoming.map((m) => {
-        const range = formatTimeRange(m.startMin, m.startMax);
-        return (
-          <div key={m.id} className="flex items-center justify-between gap-3" style={{ fontSize: "0.8rem", color: "#fff" }}>
-            <span className="inline-flex items-center gap-1.5">
-              {m.competitorA?.countryCode && <CountryBadge countryCode={m.competitorA.countryCode} fontSize="0.65rem" />}
-              {competitorName(m.competitorA)} <span style={{ color: "#6b7280" }}>vs</span>{" "}
-              {m.competitorB?.countryCode && <CountryBadge countryCode={m.competitorB.countryCode} fontSize="0.65rem" />}
-              {competitorName(m.competitorB)}
-            </span>
-            {range && <span style={{ color: "#9ca3af", fontWeight: 600, whiteSpace: "nowrap" }}>{range}</span>}
-          </div>
-        );
-      })}
+      <div
+        className="flex items-center"
+        style={{ width: "max-content", animation: `invitational-ticker-scroll ${durationSeconds}s linear infinite` }}
+      >
+        {[...items, ...items].map((item, i) => (
+          <TickerCard key={`${item.key}-${i}`} item={item} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -255,7 +326,7 @@ export default function OverlayBracketView({ eventId }: { eventId: string }) {
           </>
         )}
 
-        <UpcomingPanel upcoming={data.upcoming} />
+        <Ticker upcoming={data.upcoming} recentWinners={data.recentWinners} />
       </div>
     </div>
   );
