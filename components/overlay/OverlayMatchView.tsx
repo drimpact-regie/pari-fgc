@@ -172,11 +172,11 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
             <CountryBadge countryCode={match.competitorA.countryCode} fontSize="1.1cqw" />
           </span>
         )}
-        <Text layout={layout} elementKey="nameA" size="2.4cqw">
+        <Text layout={layout} elementKey="nameA" size="1.7cqw">
           {match.competitorA?.name ?? "?"}
         </Text>
         {match.competitorA?.tag && (
-          <Text layout={layout} elementKey="tagA" size="1.4cqw" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagA" size="1.1cqw" color="#d1d5db" weight={600}>
             {match.competitorA.tag}
           </Text>
         )}
@@ -186,19 +186,19 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
             <CountryBadge countryCode={match.competitorB.countryCode} fontSize="1.1cqw" />
           </span>
         )}
-        <Text layout={layout} elementKey="nameB" size="2.4cqw">
+        <Text layout={layout} elementKey="nameB" size="1.7cqw">
           {match.competitorB?.name ?? "?"}
         </Text>
         {match.competitorB?.tag && (
-          <Text layout={layout} elementKey="tagB" size="1.4cqw" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagB" size="1.1cqw" color="#d1d5db" weight={600}>
             {match.competitorB.tag}
           </Text>
         )}
 
-        <Text layout={layout} elementKey="scoreA" size="3cqw" weight={900}>
+        <Text layout={layout} elementKey="scoreA" size="2cqw" weight={900}>
           {match.competitorA?.score ?? 0}
         </Text>
-        <Text layout={layout} elementKey="scoreB" size="3cqw" weight={900}>
+        <Text layout={layout} elementKey="scoreB" size="2cqw" weight={900}>
           {match.competitorB?.score ?? 0}
         </Text>
       </div>

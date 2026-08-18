@@ -24,12 +24,12 @@ import CountryBadge from "@/components/overlay/CountryBadge";
 const PREVIEW_ELEMENT_STYLE: Record<OverlayElementKey, { fontSize: string; color: string; weight: number }> = {
   stage: { fontSize: "1.6cqw", color: "#fbbf24", weight: 700 },
   ft: { fontSize: "1.3cqw", color: "#9ca3af", weight: 600 },
-  nameA: { fontSize: "2.4cqw", color: "#fff", weight: 800 },
-  tagA: { fontSize: "1.4cqw", color: "#d1d5db", weight: 600 },
-  scoreA: { fontSize: "3cqw", color: "#fff", weight: 900 },
-  nameB: { fontSize: "2.4cqw", color: "#fff", weight: 800 },
-  tagB: { fontSize: "1.4cqw", color: "#d1d5db", weight: 600 },
-  scoreB: { fontSize: "3cqw", color: "#fff", weight: 900 },
+  nameA: { fontSize: "1.7cqw", color: "#fff", weight: 800 },
+  tagA: { fontSize: "1.1cqw", color: "#d1d5db", weight: 600 },
+  scoreA: { fontSize: "2cqw", color: "#fff", weight: 900 },
+  nameB: { fontSize: "1.7cqw", color: "#fff", weight: 800 },
+  tagB: { fontSize: "1.1cqw", color: "#d1d5db", weight: 600 },
+  scoreB: { fontSize: "2cqw", color: "#fff", weight: 900 },
   flagA: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
   flagB: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
 };
