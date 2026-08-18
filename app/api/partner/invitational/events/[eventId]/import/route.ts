@@ -30,11 +30,10 @@ export async function POST(
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const parsed = parseInvitationalWorkbook(buffer, file.name);
-    await importMatchesIntoInvitationalEvent(eventId, access.event.format, parsed);
+    const summary = await importMatchesIntoInvitationalEvent(eventId, access.event.format, parsed);
+    return NextResponse.json({ ok: true, summary });
   } catch (err) {
     const message = err instanceof InvitationalImportError ? err.message : "Erreur de lecture du fichier.";
     return NextResponse.json({ error: message }, { status: 400 });
   }
-
-  return NextResponse.json({ ok: true });
 }

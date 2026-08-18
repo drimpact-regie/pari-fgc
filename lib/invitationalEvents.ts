@@ -2,8 +2,8 @@ import type { InvitationalEvent, InvitationalFormat, Prisma } from "@prisma/clie
 
 import { prisma } from "@/lib/prisma";
 import {
-  buildCompetitorRoster,
   InvitationalImportError,
+  type ParsedCompetitor,
   type ParsedInvitationalImport,
 } from "@/lib/invitationalImport";
 
@@ -40,7 +40,7 @@ export async function createInvitationalEvent(input: {
     const event = await tx.invitationalEvent.create({
       data: { name: input.name, eventDate: input.eventDate, format: input.parsed.format },
     });
-    await populateEventMatches(tx, event.id, input.parsed);
+    await populateOrMergeEventMatches(tx, event.id, input.parsed);
     return event;
   });
 }
@@ -74,6 +74,12 @@ export async function createEmptyInvitationalEvent(input: {
   });
 }
 
+export interface InvitationalImportSummary {
+  created: number;
+  updated: number;
+  skippedLocked: number;
+}
+
 /**
  * (Ré)importe les matchs d'un fichier dans un event déjà créé — remplace,
  * côté portail self-service prestataire, l'étape où c'était l'admin qui
@@ -84,17 +90,16 @@ export async function createEmptyInvitationalEvent(input: {
  * plutôt que d'écraser silencieusement le format de l'event — aucune route
  * self-service ne permet de le changer, ça reste un geste admin.
  *
- * Un ré-import (event qui a déjà des matchs) repart entièrement de zéro :
- * les matchs et compétiteurs existants sont supprimés puis recréés depuis
- * le nouveau fichier, ce qui annule au passage (suppression en cascade) les
- * paris déjà placés dessus — pensé pour corriger un fichier erroné avant le
- * début du show, pas pour fusionner deux versions en cours d'event.
+ * Un ré-import FUSIONNE avec les matchs déjà présents plutôt que de tout
+ * remplacer (voir populateOrMergeEventMatches) : jamais de perte de score
+ * déjà saisi, de compétiteur déjà identifié, ni des paris déjà placés sur
+ * un match en cours/joué.
  */
 export async function importMatchesIntoInvitationalEvent(
   eventId: string,
   expectedFormat: InvitationalFormat,
   parsed: ParsedInvitationalImport,
-): Promise<void> {
+): Promise<InvitationalImportSummary> {
   if (parsed.format !== expectedFormat) {
     throw new InvitationalImportError(
       `Ce fichier est un modèle "${parsed.format}" mais votre event a été confirmé au format ` +
@@ -102,61 +107,134 @@ export async function importMatchesIntoInvitationalEvent(
     );
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.invitationalMatch.deleteMany({ where: { eventId } });
-    await tx.invitationalCompetitor.deleteMany({ where: { eventId } });
-    await populateEventMatches(tx, eventId, parsed);
-  });
+  return prisma.$transaction((tx) => populateOrMergeEventMatches(tx, eventId, parsed));
 }
 
 /**
- * Crée les compétiteurs dédupliqués par nom (buildCompetitorRoster) puis
- * tous les matchs en référençant les bons compétiteurs — factorisé entre
- * createInvitationalEvent (création admin) et importMatchesIntoInvitationalEvent
- * (import/ré-import self-service prestataire), toujours dans la transaction
- * de l'appelant pour ne jamais laisser un event à moitié importé si quelque
- * chose échoue en cours de route.
+ * Fusionne un import (parsé depuis un fichier) avec les matchs déjà
+ * présents pour l'event — factorisé entre createInvitationalEvent (event
+ * flambant neuf, donc sans effet de bord : tout est "créé") et
+ * importMatchesIntoInvitationalEvent (ré-import self-service prestataire,
+ * où la fusion protège la progression déjà faite), toujours dans la
+ * transaction de l'appelant pour ne jamais laisser un event à moitié
+ * importé si quelque chose échoue en cours de route.
+ *
+ * Appariement d'un match du fichier à un match existant par (groupLabel,
+ * orderIndex) normalisés — la seule paire stable dans les données d'import
+ * (voir lib/invitationalImport.ts : aucun identifiant technique par ligne
+ * n'existe). Un match apparié DÉJÀ EN COURS OU JOUÉ (status != NOT_OPEN, ou
+ * score/vainqueur déjà renseigné) n'est jamais modifié par le réimport —
+ * ni ses compétiteurs (y compris un TBD_ déjà résolu en vrai nom), ni son
+ * format FT/rounds — pour ne jamais perdre une progression déjà faite ni
+ * invalider les paris qui référencent ce match. Un match encore NOT_OPEN et
+ * sans score, en revanche, est entièrement resynchronisé depuis le fichier
+ * (nom/tag/pays, FT, rounds, vérif manette) : pensé pour corriger une
+ * erreur de saisie avant que le match ne commence. Un match du fichier sans
+ * correspondance existante est ajouté ; un match existant absent du
+ * nouveau fichier est conservé tel quel (jamais supprimé par un réimport —
+ * fusion, pas remplacement total).
+ *
+ * Les compétiteurs sont résolus par nom normalisé en réutilisant ceux déjà
+ * présents pour l'event (y compris ceux créés plus tôt dans CE même import,
+ * pour un nom apparaissant sur plusieurs matchs) plutôt qu'en recréant un
+ * doublon à chaque match — nécessaire pour que la série de victoires d'un
+ * joueur (lib/invitationalOdds.ts) reste cumulée sur une seule entrée.
  */
-async function populateEventMatches(
+async function populateOrMergeEventMatches(
   tx: Prisma.TransactionClient,
   eventId: string,
   parsed: ParsedInvitationalImport,
-): Promise<void> {
-  const roster = buildCompetitorRoster(parsed.matches);
+): Promise<InvitationalImportSummary> {
+  const [existingMatches, existingCompetitors] = await Promise.all([
+    tx.invitationalMatch.findMany({ where: { eventId } }),
+    tx.invitationalCompetitor.findMany({ where: { eventId } }),
+  ]);
+
+  const existingMatchByKey = new Map<string, (typeof existingMatches)[number]>();
+  for (const match of existingMatches) {
+    existingMatchByKey.set(matchImportKey(match.groupLabel, match.orderIndex), match);
+  }
 
   const competitorIdByName = new Map<string, string>();
-  for (const competitor of roster) {
-    const created = await tx.invitationalCompetitor.create({
-      data: {
-        eventId,
-        name: competitor.name,
-        tag: competitor.tag,
-        countryCode: competitor.countryCode,
-      },
-    });
-    competitorIdByName.set(normalizeCompetitorKey(competitor.name), created.id);
+  for (const competitor of existingCompetitors) {
+    competitorIdByName.set(normalizeCompetitorKey(competitor.name), competitor.id);
   }
 
-  for (const match of parsed.matches) {
-    await tx.invitationalMatch.create({
-      data: {
-        eventId,
-        groupLabel: match.groupLabel,
-        orderIndex: match.orderIndex,
-        competitorAId: match.competitorA
-          ? competitorIdByName.get(normalizeCompetitorKey(match.competitorA.name))
-          : null,
-        placeholderA: match.placeholderA,
-        competitorBId: match.competitorB
-          ? competitorIdByName.get(normalizeCompetitorKey(match.competitorB.name))
-          : null,
-        placeholderB: match.placeholderB,
-        ftGames: match.ftGames,
-        roundsPerGame: match.roundsPerGame,
-        verifManette: match.verifManette,
-      },
+  async function resolveCompetitorId(competitor: ParsedCompetitor | null): Promise<string | null> {
+    if (!competitor) return null;
+    const key = normalizeCompetitorKey(competitor.name);
+    const existingId = competitorIdByName.get(key);
+    if (existingId) return existingId;
+    const created = await tx.invitationalCompetitor.create({
+      data: { eventId, name: competitor.name, tag: competitor.tag, countryCode: competitor.countryCode },
     });
+    competitorIdByName.set(key, created.id);
+    return created.id;
   }
+
+  const summary: InvitationalImportSummary = { created: 0, updated: 0, skippedLocked: 0 };
+
+  for (const match of parsed.matches) {
+    const key = matchImportKey(match.groupLabel, match.orderIndex);
+    const existing = existingMatchByKey.get(key);
+
+    if (existing) {
+      const locked =
+        existing.status !== "NOT_OPEN" ||
+        existing.scoreA != null ||
+        existing.scoreB != null ||
+        existing.winnerId != null;
+      if (locked) {
+        summary.skippedLocked++;
+        continue;
+      }
+
+      const [competitorAId, competitorBId] = await Promise.all([
+        resolveCompetitorId(match.competitorA),
+        resolveCompetitorId(match.competitorB),
+      ]);
+      await tx.invitationalMatch.update({
+        where: { id: existing.id },
+        data: {
+          groupLabel: match.groupLabel,
+          competitorAId,
+          placeholderA: match.placeholderA,
+          competitorBId,
+          placeholderB: match.placeholderB,
+          ftGames: match.ftGames,
+          roundsPerGame: match.roundsPerGame,
+          verifManette: match.verifManette,
+        },
+      });
+      summary.updated++;
+    } else {
+      const [competitorAId, competitorBId] = await Promise.all([
+        resolveCompetitorId(match.competitorA),
+        resolveCompetitorId(match.competitorB),
+      ]);
+      await tx.invitationalMatch.create({
+        data: {
+          eventId,
+          groupLabel: match.groupLabel,
+          orderIndex: match.orderIndex,
+          competitorAId,
+          placeholderA: match.placeholderA,
+          competitorBId,
+          placeholderB: match.placeholderB,
+          ftGames: match.ftGames,
+          roundsPerGame: match.roundsPerGame,
+          verifManette: match.verifManette,
+        },
+      });
+      summary.created++;
+    }
+  }
+
+  return summary;
+}
+
+function matchImportKey(groupLabel: string | null, orderIndex: number): string {
+  return `${normalizeCompetitorKey(groupLabel ?? "")}::${orderIndex}`;
 }
 
 function normalizeCompetitorKey(name: string): string {

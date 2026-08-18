@@ -16,7 +16,7 @@ export default function PartnerInvitationalImportForm({
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingReimport, setConfirmingReimport] = useState(false);
+  const [summary, setSummary] = useState<{ created: number; updated: number; skippedLocked: number } | null>(null);
 
   async function doImport() {
     if (!file) {
@@ -25,7 +25,7 @@ export default function PartnerInvitationalImportForm({
     }
     setSaving(true);
     setError(null);
-    setConfirmingReimport(false);
+    setSummary(null);
 
     const formData = new FormData();
     formData.set("file", file);
@@ -37,22 +37,19 @@ export default function PartnerInvitationalImportForm({
 
     setSaving(false);
 
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Erreur lors de l'import.");
       return;
     }
 
     setFile(null);
+    setSummary(data.summary ?? null);
     router.refresh();
   }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (hasMatches && !confirmingReimport) {
-      setConfirmingReimport(true);
-      return;
-    }
     doImport();
   }
 
@@ -63,6 +60,13 @@ export default function PartnerInvitationalImportForm({
         <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
           Téléchargez le modèle, remplissez-le (joueurs, tags, pays — voir la légende dans le
           fichier), puis importez-le ici.
+          {hasMatches && (
+            <>
+              {" "}Réimporter un fichier met à jour les matchs pas encore joués (noms, format, rounds)
+              et ajoute les nouveaux — un match déjà en cours ou joué (score saisi, résultat déclaré)
+              n&apos;est jamais modifié ni supprimé.
+            </>
+          )}
         </p>
       </div>
       <a href={templateUrl} className="btn w-fit" download>
@@ -75,21 +79,20 @@ export default function PartnerInvitationalImportForm({
             type="file"
             accept=".xlsx,.csv"
             className="input mt-1"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setConfirmingReimport(false);
-            }}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
         </label>
         <button type="submit" className="btn btn-primary" disabled={saving || !file}>
           {saving ? "Import..." : hasMatches ? "Réimporter" : "Importer"}
         </button>
       </div>
-      {confirmingReimport && (
-        <p className="text-xs" style={{ color: "var(--lose)" }}>
-          Cet event a déjà des matchs importés : réimporter remplace entièrement les joueurs/matchs
-          actuels et annule les paris déjà placés dessus. Cliquez à nouveau sur &laquo;&nbsp;Réimporter&nbsp;&raquo;
-          pour confirmer.
+      {summary && (
+        <p className="text-xs" style={{ color: "var(--win)" }}>
+          {summary.created} match{summary.created > 1 ? "s" : ""} ajouté{summary.created > 1 ? "s" : ""},{" "}
+          {summary.updated} mis à jour
+          {summary.skippedLocked > 0 &&
+            `, ${summary.skippedLocked} déjà en cours/joué${summary.skippedLocked > 1 ? "s" : ""} (non modifié${summary.skippedLocked > 1 ? "s" : ""})`}
+          .
         </p>
       )}
       {error && (

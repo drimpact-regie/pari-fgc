@@ -7,7 +7,9 @@ import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
+import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
+import { INVITATIONAL_TEMPLATE_FILENAMES } from "@/lib/invitationalTemplates";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +63,12 @@ export default async function AdminInvitationalEventPage({
           {matches.length} match{matches.length > 1 ? "s" : ""}
         </p>
       </div>
+
+      <PartnerInvitationalImportForm
+        eventId={event.id}
+        templateUrl={`/templates/invitational/${INVITATIONAL_TEMPLATE_FILENAMES[event.format]}`}
+        hasMatches={matches.length > 0}
+      />
 
       <div className="card p-4 flex items-center justify-between gap-3">
         <div>
