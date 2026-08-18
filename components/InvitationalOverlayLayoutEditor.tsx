@@ -1,0 +1,232 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import {
+  OVERLAY_CANVAS_HEIGHT,
+  OVERLAY_CANVAS_WIDTH,
+  OVERLAY_ELEMENT_KEYS,
+  OVERLAY_ELEMENT_LABELS,
+  type OverlayElementKey,
+  type OverlayLayout,
+} from "@/lib/invitationalOverlayLayout";
+import { MAX_OVERLAY_BACKGROUND_BASE64_LENGTH } from "@/lib/invitationalOverlayImage";
+
+const PREVIEW_WIDTH = 480;
+const PREVIEW_HEIGHT = 270; // 480 * 1080/1920, ratio 16:9
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function readImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onerror = () => reject(new Error("Image illisible."));
+    img.src = dataUrl;
+  });
+}
+
+export default function InvitationalOverlayLayoutEditor({
+  eventId,
+  initialBackgroundUrl,
+  initialLayout,
+}: {
+  eventId: string;
+  initialBackgroundUrl: string | null;
+  initialLayout: OverlayLayout;
+}) {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [backgroundUrl, setBackgroundUrl] = useState(initialBackgroundUrl);
+  const [layout, setLayout] = useState(initialLayout);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setWarning(null);
+    setSaved(false);
+
+    if (file.type !== "image/png") {
+      setError("Le fond doit être une image PNG.");
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (dataUrl.length > MAX_OVERLAY_BACKGROUND_BASE64_LENGTH) {
+        setError("Image trop volumineuse (4 Mo max).");
+        return;
+      }
+      const { width, height } = await readImageDimensions(dataUrl);
+      if (width !== OVERLAY_CANVAS_WIDTH || height !== OVERLAY_CANVAS_HEIGHT) {
+        setWarning(
+          `Image ${width}x${height} — un format ${OVERLAY_CANVAS_WIDTH}x${OVERLAY_CANVAS_HEIGHT} est recommandé pour que les positions ci-dessous tombent au bon endroit.`,
+        );
+      }
+      setBackgroundUrl(dataUrl);
+    } catch {
+      setError("Impossible de lire ce fichier.");
+    }
+  }
+
+  function clearBackground() {
+    setBackgroundUrl(null);
+    setWarning(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function updatePosition(key: OverlayElementKey, axis: "x" | "y", value: string) {
+    const num = Number(value);
+    setLayout((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], [axis]: Number.isFinite(num) ? num : prev[key][axis] },
+    }));
+    setSaved(false);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    const res = await fetch(`/api/admin/invitational/events/${eventId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ overlayBackgroundUrl: backgroundUrl ?? "", overlayLayout: layout }),
+    });
+
+    setSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Erreur lors de l'enregistrement.");
+      return;
+    }
+    setSaved(true);
+    router.refresh();
+  }
+
+  return (
+    <div className="card p-4 flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-semibold">Overlay &quot;Match en cours&quot; — fond et positions</p>
+        <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+          Chaque jeu a ses zones de HUD à des endroits différents : uploadez le fond de VOTRE
+          event ({OVERLAY_CANVAS_WIDTH}x{OVERLAY_CANVAS_HEIGHT}, PNG avec transparence) et ajustez
+          la position de chaque élément en conséquence. Sans fond, l&apos;overlay reste transparent
+          (comportement actuel).
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input ref={fileInputRef} type="file" accept="image/png" className="input" onChange={handleFileChange} />
+          {backgroundUrl && (
+            <button type="button" className="btn text-xs" onClick={clearBackground}>
+              Retirer le fond
+            </button>
+          )}
+        </div>
+        {warning && (
+          <p className="text-xs" style={{ color: "var(--gold)" }}>
+            {warning}
+          </p>
+        )}
+      </div>
+
+      <Preview backgroundUrl={backgroundUrl} layout={layout} />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {OVERLAY_ELEMENT_KEYS.map((key) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="text-xs w-20 shrink-0" style={{ color: "var(--muted)" }}>
+              {OVERLAY_ELEMENT_LABELS[key]}
+            </span>
+            <label className="text-xs">
+              X
+              <input
+                type="number"
+                className="input mt-1"
+                style={{ width: "5.5rem" }}
+                value={layout[key].x}
+                onChange={(e) => updatePosition(key, "x", e.target.value)}
+              />
+            </label>
+            <label className="text-xs">
+              Y
+              <input
+                type="number"
+                className="input mt-1"
+                style={{ width: "5.5rem" }}
+                value={layout[key].y}
+                onChange={(e) => updatePosition(key, "y", e.target.value)}
+              />
+            </label>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button type="button" className="btn btn-primary text-xs" disabled={saving} onClick={handleSave}>
+          {saving ? "..." : saved ? "Enregistré ✓" : "Enregistrer"}
+        </button>
+        {error && (
+          <span className="text-xs" style={{ color: "var(--lose)" }}>
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Aperçu léger (pas d'éditeur drag-and-drop) : miniature du fond à l'échelle
+ * 1/4 avec le libellé de chaque élément positionné en CSS pur (mêmes
+ * pourcentages que le rendu overlay réel) — assez pour valider un
+ * positionnement sans avoir à ouvrir la page overlay séparément.
+ */
+function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layout: OverlayLayout }) {
+  return (
+    <div
+      className="rounded-md overflow-hidden relative shrink-0"
+      style={{
+        width: PREVIEW_WIDTH,
+        height: PREVIEW_HEIGHT,
+        background: backgroundUrl ? undefined : "repeating-conic-gradient(#1f2937 0% 25%, #111827 0% 50%) 0 0 / 20px 20px",
+      }}
+    >
+      {backgroundUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- aperçu d'une image en data: URL locale.
+        <img src={backgroundUrl} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      )}
+      {OVERLAY_ELEMENT_KEYS.map((key) => (
+        <span
+          key={key}
+          className="absolute px-1 rounded text-[9px] font-semibold whitespace-nowrap"
+          style={{
+            left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
+            top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+            background: "rgba(0,0,0,0.6)",
+            color: "#fbbf24",
+          }}
+        >
+          {OVERLAY_ELEMENT_LABELS[key]}
+        </span>
+      ))}
+    </div>
+  );
+}

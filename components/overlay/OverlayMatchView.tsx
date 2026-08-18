@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 
 import { countryCodeToFlagEmoji } from "@/lib/flags";
+import {
+  mergeOverlayLayout,
+  OVERLAY_CANVAS_HEIGHT,
+  OVERLAY_CANVAS_WIDTH,
+  type OverlayElementKey,
+  type OverlayLayout,
+} from "@/lib/invitationalOverlayLayout";
 
 interface OverlayCompetitor {
   name: string;
@@ -21,37 +28,66 @@ interface OverlayMatch {
   competitorB: OverlayCompetitor | null;
 }
 
+interface OverlayMatchResponse {
+  match: OverlayMatch | null;
+  overlayBackgroundUrl: string | null;
+  overlayLayout: unknown;
+}
+
 const POLL_INTERVAL_MS = 3000;
 
-function CompetitorBlock({ competitor, align }: { competitor: OverlayCompetitor | null; align: "left" | "right" }) {
-  const flag = competitor ? countryCodeToFlagEmoji(competitor.countryCode) : null;
+/**
+ * Police d'accroche du stream ("Hanson Bold") — pas de fichier de police
+ * fourni/embarqué ici : ce nom résout vers une police du même nom déjà
+ * installée sur la machine qui affiche la page (celle qui fait tourner OBS,
+ * comme n'importe quel navigateur système), sinon retombe sur sans-serif.
+ * Voir la doc affichée dans l'admin/la page partenaire.
+ */
+const OVERLAY_FONT_FAMILY = '"Hanson Bold", sans-serif';
+
+const TEXT_SHADOW = "0 2px 6px rgba(0,0,0,0.85)";
+
+function positionStyle(pos: { x: number; y: number }): React.CSSProperties {
+  return {
+    position: "absolute",
+    left: `${(pos.x / OVERLAY_CANVAS_WIDTH) * 100}%`,
+    top: `${(pos.y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+  };
+}
+
+function Text({
+  layout,
+  elementKey,
+  children,
+  size,
+  color = "#fff",
+  weight = 800,
+}: {
+  layout: OverlayLayout;
+  elementKey: OverlayElementKey;
+  children: React.ReactNode;
+  size: string;
+  color?: string;
+  weight?: number;
+}) {
   return (
-    <div
-      className="flex flex-col gap-1"
-      style={{ alignItems: align === "left" ? "flex-start" : "flex-end", flex: 1, minWidth: 0 }}
+    <span
+      style={{
+        ...positionStyle(layout[elementKey]),
+        fontSize: size,
+        fontWeight: weight,
+        color,
+        textShadow: TEXT_SHADOW,
+        whiteSpace: "nowrap",
+      }}
     >
-      <div className="flex items-center gap-2" style={{ flexDirection: align === "left" ? "row" : "row-reverse" }}>
-        {flag && <span style={{ fontSize: "1.5rem" }}>{flag}</span>}
-        <span
-          style={{
-            fontSize: "1.75rem",
-            fontWeight: 800,
-            color: "#fff",
-            textShadow: "0 2px 6px rgba(0,0,0,0.85)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {competitor?.tag ? `${competitor.tag} | ${competitor.name}` : (competitor?.name ?? "?")}
-        </span>
-      </div>
-    </div>
+      {children}
+    </span>
   );
 }
 
 export default function OverlayMatchView({ eventId }: { eventId: string }) {
-  const [match, setMatch] = useState<OverlayMatch | null>(null);
+  const [data, setData] = useState<OverlayMatchResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -61,9 +97,9 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
       try {
         const res = await fetch(`/api/invitational/overlay/${eventId}/match`, { cache: "no-store" });
         if (!res.ok || cancelled) return;
-        const data = await res.json();
+        const json = await res.json();
         if (!cancelled) {
-          setMatch(data.match ?? null);
+          setData(json);
           setLoaded(true);
         }
       } catch {
@@ -79,34 +115,82 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
     };
   }, [eventId]);
 
+  const match = data?.match ?? null;
+
   if (!loaded || !match || (!match.competitorA && !match.competitorB)) {
     return null;
   }
 
+  const layout = mergeOverlayLayout(data?.overlayLayout);
+  const flagA = match.competitorA ? countryCodeToFlagEmoji(match.competitorA.countryCode) : null;
+  const flagB = match.competitorB ? countryCodeToFlagEmoji(match.competitorB.countryCode) : null;
+
   return (
     <div
-      className="inline-flex flex-col gap-2 px-8 py-4 rounded-xl"
-      style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        overflow: "hidden",
+        containerType: "inline-size",
+        fontFamily: OVERLAY_FONT_FAMILY,
+      }}
     >
-      {match.groupLabel && (
-        <div className="flex items-center justify-center gap-3 text-center">
-          <span style={{ fontSize: "0.9rem", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-            {match.groupLabel}
-          </span>
-          {match.ftGames && (
-            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#9ca3af" }}>FT{match.ftGames}</span>
-          )}
-        </div>
+      {data?.overlayBackgroundUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- image en data: URL (base64), incompatible avec next/image (optimisation d'URL distante).
+        <img
+          src={data.overlayBackgroundUrl}
+          alt=""
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        />
       )}
-      <div className="flex items-center gap-6">
-        <CompetitorBlock competitor={match.competitorA} align="left" />
-        <div className="flex items-center gap-3 shrink-0" style={{ fontSize: "2.25rem", fontWeight: 900, color: "#fff", textShadow: "0 2px 6px rgba(0,0,0,0.85)" }}>
-          <span>{match.competitorA?.score ?? 0}</span>
-          <span style={{ color: "#6b7280", fontSize: "1.25rem" }}>—</span>
-          <span>{match.competitorB?.score ?? 0}</span>
-        </div>
-        <CompetitorBlock competitor={match.competitorB} align="right" />
-      </div>
+
+      {match.groupLabel && (
+        <Text layout={layout} elementKey="stage" size="1.6cqw" color="#fbbf24" weight={700}>
+          {match.groupLabel}
+        </Text>
+      )}
+      {match.ftGames && (
+        <Text layout={layout} elementKey="ft" size="1.3cqw" color="#9ca3af" weight={600}>
+          FT{match.ftGames}
+        </Text>
+      )}
+
+      {flagA && (
+        <span style={{ ...positionStyle(layout.flagA), fontSize: "2.4cqw" }}>{flagA}</span>
+      )}
+      <Text layout={layout} elementKey="nameA" size="2.4cqw">
+        {match.competitorA?.name ?? "?"}
+      </Text>
+      {match.competitorA?.tag && (
+        <Text layout={layout} elementKey="tagA" size="1.4cqw" color="#d1d5db" weight={600}>
+          {match.competitorA.tag}
+        </Text>
+      )}
+
+      {flagB && (
+        <span style={{ ...positionStyle(layout.flagB), fontSize: "2.4cqw" }}>{flagB}</span>
+      )}
+      <Text layout={layout} elementKey="nameB" size="2.4cqw">
+        {match.competitorB?.name ?? "?"}
+      </Text>
+      {match.competitorB?.tag && (
+        <Text layout={layout} elementKey="tagB" size="1.4cqw" color="#d1d5db" weight={600}>
+          {match.competitorB.tag}
+        </Text>
+      )}
+
+      <span
+        style={{
+          ...positionStyle(layout.score),
+          fontSize: "3cqw",
+          fontWeight: 900,
+          color: "#fff",
+          textShadow: TEXT_SHADOW,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {match.competitorA?.score ?? 0} — {match.competitorB?.score ?? 0}
+      </span>
     </div>
   );
 }

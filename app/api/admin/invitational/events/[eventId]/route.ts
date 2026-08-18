@@ -6,6 +6,13 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { normalizeTwitchChannel } from "@/lib/normalize";
 import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
+import { assertValidOverlayBackgroundDataUrl, InvitationalOverlayImageError } from "@/lib/invitationalOverlayImage";
+import { OVERLAY_ELEMENT_KEYS } from "@/lib/invitationalOverlayLayout";
+
+const overlayPositionSchema = z.object({ x: z.number(), y: z.number() });
+const overlayLayoutSchema = z.object(
+  Object.fromEntries(OVERLAY_ELEMENT_KEYS.map((key) => [key, overlayPositionSchema.optional()])),
+);
 
 const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PAST"]).optional(),
@@ -22,6 +29,11 @@ const updateSchema = z.object({
   rundownSetupSeconds: z.number().int().nonnegative().optional(),
   rundownVerifSeconds: z.number().int().nonnegative().optional(),
   rundownStartAt: z.string().trim().optional(),
+  // Personnalisation de l'overlay OBS "match en cours" — voir
+  // lib/invitationalOverlayLayout.ts / lib/invitationalOverlayImage.ts.
+  // overlayBackgroundUrl : chaîne vide = retire le fond personnalisé.
+  overlayBackgroundUrl: z.string().optional(),
+  overlayLayout: overlayLayoutSchema.optional(),
 });
 
 /**
@@ -64,6 +76,15 @@ export async function PATCH(
     }
   }
 
+  if (parsed.data.overlayBackgroundUrl !== undefined) {
+    try {
+      assertValidOverlayBackgroundDataUrl(parsed.data.overlayBackgroundUrl);
+    } catch (err) {
+      const message = err instanceof InvitationalOverlayImageError ? err.message : "Image invalide.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+  }
+
   const event = await prisma.invitationalEvent.update({
     where: { id: eventId },
     data: {
@@ -90,6 +111,10 @@ export async function PATCH(
         ? { rundownVerifSeconds: parsed.data.rundownVerifSeconds }
         : {}),
       ...(rundownStartAt !== undefined ? { rundownStartAt } : {}),
+      ...(parsed.data.overlayBackgroundUrl !== undefined
+        ? { overlayBackgroundUrl: parsed.data.overlayBackgroundUrl || null }
+        : {}),
+      ...(parsed.data.overlayLayout !== undefined ? { overlayLayout: parsed.data.overlayLayout } : {}),
     },
   });
 

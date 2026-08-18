@@ -8,7 +8,9 @@ import { INVITATIONAL_TEMPLATE_FILENAMES } from "@/lib/invitationalTemplates";
 import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
+import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
+import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +90,12 @@ export default async function PartnerInvitationalEventPage({
           rundownVerifSeconds: event.rundownVerifSeconds,
           rundownStartAt: event.rundownStartAt,
         }}
+      />
+
+      <InvitationalOverlayLayoutEditor
+        eventId={event.id}
+        initialBackgroundUrl={event.overlayBackgroundUrl}
+        initialLayout={mergeOverlayLayout(event.overlayLayout)}
       />
 
       {matches.length === 0 ? (

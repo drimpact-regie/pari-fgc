@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 
 /**
  * Endpoint public en lecture seule pour l'overlay OBS "match en cours"
@@ -34,6 +35,8 @@ export async function GET(
   }
 
   return NextResponse.json({
+    overlayBackgroundUrl: event.overlayBackgroundUrl,
+    overlayLayout: mergeOverlayLayout(event.overlayLayout),
     match: {
       id: match.id,
       groupLabel: match.groupLabel,

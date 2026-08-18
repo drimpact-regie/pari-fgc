@@ -15,16 +15,11 @@ export default async function OverlayMatchPage({
 }) {
   const { eventId } = await params;
 
-  // Contenu ancré en haut à gauche, pas centré dans un plein écran : la
-  // taille réelle de la Browser Source OBS est choisie par le prestataire
-  // (voir la légende dans /admin/invitational/[eventId]) et le cadrage doit
-  // rester prévisible quelle que soit cette taille — un contenu centré dans
-  // un conteneur plein écran se retrouve invisible/coupé si la Browser
-  // Source est plus petite que l'écran ou recadrée en supposant un contenu
-  // en haut à gauche.
-  return (
-    <div className="p-4">
-      <OverlayMatchView eventId={eventId} />
-    </div>
-  );
+  // Plus de padding/cadrage ici : OverlayMatchView couvre maintenant tout le
+  // viewport (position: fixed; inset: 0) et positionne chaque élément en
+  // pourcentage d'un repère fixe 1920x1080 (voir lib/invitationalOverlayLayout.ts)
+  // — la Browser Source OBS doit être configurée à une résolution 16:9
+  // (1920x1080 ou équivalent réduit, ex. 960x540) pour que les positions
+  // tombent au bon endroit sur le fond personnalisé de l'event.
+  return <OverlayMatchView eventId={eventId} />;
 }

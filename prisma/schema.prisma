@@ -374,6 +374,21 @@ model InvitationalEvent {
   ownerUser          User?                     @relation("InvitationalEventOwner", fields: [ownerUserId], references: [id])
   partnerAccessToken String?                   @unique
 
+  // Personnalisation de l'overlay OBS "match en cours" (voir
+  // /overlay/invitational/[eventId]/match) : chaque jeu a ses propres
+  // zones de HUD à des endroits différents sur l'image du prestataire, donc
+  // pas de position universelle possible — fond et positions sont propres à
+  // CET event. overlayBackgroundUrl est une data: URL (image encodée en
+  // base64, voir lib/invitationalOverlayImage.ts) plutôt qu'un fichier sur
+  // disque : le système de fichiers de Vercel est éphémère (voir
+  // .env.example), et ça évite d'ajouter une dépendance de stockage externe
+  // pour quelques images par event. overlayLayout stocke les positions
+  // (x,y) par élément dans un repère fixe 1920x1080 (voir
+  // lib/invitationalOverlayLayout.ts pour la clé de chaque élément et les
+  // valeurs par défaut si absent/partiel).
+  overlayBackgroundUrl String? @db.Text
+  overlayLayout        Json?
+
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
   bets        InvitationalBet[]

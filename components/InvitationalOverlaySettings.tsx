@@ -107,8 +107,11 @@ export default function InvitationalOverlaySettings({
       <div>
         <p className="text-sm font-semibold">Overlays OBS</p>
         <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-          À ajouter comme Browser Source dans OBS (fond transparent). Le contenu se met à jour tout
-          seul, pas besoin de recharger la source après un changement.
+          À ajouter comme Browser Source dans OBS. Le contenu se met à jour tout seul, pas besoin de
+          recharger la source après un changement. Pour &quot;Match en cours&quot;, configurez la
+          Browser Source en 1920x1080 (ou un autre format 16:9, ex. 960x540) : les positions réglées
+          ci-dessous sont calées sur ce repère — voir le fond et les positions personnalisables plus
+          bas.
         </p>
       </div>
 
