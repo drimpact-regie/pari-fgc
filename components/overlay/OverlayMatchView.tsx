@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import localFont from "next/font/local";
 
 import { countryCodeToFlagEmoji } from "@/lib/flags";
 import {
@@ -37,13 +38,17 @@ interface OverlayMatchResponse {
 const POLL_INTERVAL_MS = 3000;
 
 /**
- * Police d'accroche du stream ("Hanson Bold") — pas de fichier de police
- * fourni/embarqué ici : ce nom résout vers une police du même nom déjà
- * installée sur la machine qui affiche la page (celle qui fait tourner OBS,
- * comme n'importe quel navigateur système), sinon retombe sur sans-serif.
- * Voir la doc affichée dans l'admin/la page partenaire.
+ * Police d'accroche du stream ("Hanson Bold", fichier fourni par le
+ * prestataire dans app/fonts/HansonBold.ttf) — auto-hébergée et optimisée
+ * par Next.js (next/font/local), donc affichée correctement quelle que soit
+ * la machine qui charge la page, sans dépendre d'une police installée
+ * localement comme le ferait une simple référence par nom.
  */
-const OVERLAY_FONT_FAMILY = '"Hanson Bold", sans-serif';
+const hansonBold = localFont({
+  src: "../../app/fonts/HansonBold.ttf",
+  weight: "700",
+  display: "swap",
+});
 
 const TEXT_SHADOW = "0 2px 6px rgba(0,0,0,0.85)";
 
@@ -127,12 +132,12 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
 
   return (
     <div
+      className={hansonBold.className}
       style={{
         position: "fixed",
         inset: 0,
         overflow: "hidden",
         containerType: "inline-size",
-        fontFamily: OVERLAY_FONT_FAMILY,
       }}
     >
       {data?.overlayBackgroundUrl && (
