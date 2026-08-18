@@ -15,23 +15,24 @@ import { MAX_OVERLAY_BACKGROUND_BASE64_LENGTH } from "@/lib/invitationalOverlayI
 import CountryBadge from "@/components/overlay/CountryBadge";
 
 /**
- * Taille/couleur/poids par élément — copie exacte de ce que rend
+ * Couleur/poids par élément — copie exacte de ce que rend
  * components/overlay/OverlayMatchView.tsx pour CET élément, afin que
  * l'aperçu reflète fidèlement le rendu réel (plutôt qu'une étiquette
  * générique à taille uniforme, qui donnait une impression de chevauchement
- * ne correspondant pas à ce qui s'affiche vraiment sur le stream).
+ * ne correspondant pas à ce qui s'affiche vraiment sur le stream). La
+ * taille, elle, vient de layout[key].size — éditable ci-dessous.
  */
-const PREVIEW_ELEMENT_STYLE: Record<OverlayElementKey, { fontSize: string; color: string; weight: number }> = {
-  stage: { fontSize: "1.6cqw", color: "#fbbf24", weight: 700 },
-  ft: { fontSize: "1.3cqw", color: "#9ca3af", weight: 600 },
-  nameA: { fontSize: "1.7cqw", color: "#fff", weight: 800 },
-  tagA: { fontSize: "1.1cqw", color: "#d1d5db", weight: 600 },
-  scoreA: { fontSize: "2cqw", color: "#fff", weight: 900 },
-  nameB: { fontSize: "1.7cqw", color: "#fff", weight: 800 },
-  tagB: { fontSize: "1.1cqw", color: "#d1d5db", weight: 600 },
-  scoreB: { fontSize: "2cqw", color: "#fff", weight: 900 },
-  flagA: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
-  flagB: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
+const PREVIEW_ELEMENT_STYLE: Record<OverlayElementKey, { color: string; weight: number }> = {
+  stage: { color: "#fbbf24", weight: 700 },
+  ft: { color: "#9ca3af", weight: 600 },
+  nameA: { color: "#fff", weight: 800 },
+  tagA: { color: "#d1d5db", weight: 600 },
+  scoreA: { color: "#fff", weight: 900 },
+  nameB: { color: "#fff", weight: 800 },
+  tagB: { color: "#d1d5db", weight: 600 },
+  scoreB: { color: "#fff", weight: 900 },
+  flagA: { color: "#fff", weight: 700 },
+  flagB: { color: "#fff", weight: 700 },
 };
 
 const FLAG_KEYS: OverlayElementKey[] = ["flagA", "flagB"];
@@ -109,11 +110,11 @@ export default function InvitationalOverlayLayoutEditor({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  function updatePosition(key: OverlayElementKey, axis: "x" | "y", value: string) {
+  function updateField(key: OverlayElementKey, field: "x" | "y" | "size", value: string) {
     const num = Number(value);
     setLayout((prev) => ({
       ...prev,
-      [key]: { ...prev[key], [axis]: Number.isFinite(num) ? num : prev[key][axis] },
+      [key]: { ...prev[key], [field]: Number.isFinite(num) ? num : prev[key][field] },
     }));
     setSaved(false);
   }
@@ -142,12 +143,12 @@ export default function InvitationalOverlayLayoutEditor({
   return (
     <div className="card p-4 flex flex-col gap-4">
       <div>
-        <p className="text-sm font-semibold">Overlay &quot;Match en cours&quot; — fond et positions</p>
+        <p className="text-sm font-semibold">Overlay &quot;Match en cours&quot; — fond, positions et tailles</p>
         <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
           Chaque jeu a ses zones de HUD à des endroits différents : uploadez le fond de VOTRE
           event ({OVERLAY_CANVAS_WIDTH}x{OVERLAY_CANVAS_HEIGHT}, PNG avec transparence) et ajustez
-          la position de chaque élément en conséquence. Sans fond, l&apos;overlay reste transparent
-          (comportement actuel).
+          la position et la taille de chaque élément en conséquence. Sans fond, l&apos;overlay
+          reste transparent (comportement actuel).
         </p>
       </div>
 
@@ -180,9 +181,9 @@ export default function InvitationalOverlayLayoutEditor({
               <input
                 type="number"
                 className="input mt-1"
-                style={{ width: "5.5rem" }}
+                style={{ width: "4.5rem" }}
                 value={layout[key].x}
-                onChange={(e) => updatePosition(key, "x", e.target.value)}
+                onChange={(e) => updateField(key, "x", e.target.value)}
               />
             </label>
             <label className="text-xs">
@@ -190,9 +191,21 @@ export default function InvitationalOverlayLayoutEditor({
               <input
                 type="number"
                 className="input mt-1"
-                style={{ width: "5.5rem" }}
+                style={{ width: "4.5rem" }}
                 value={layout[key].y}
-                onChange={(e) => updatePosition(key, "y", e.target.value)}
+                onChange={(e) => updateField(key, "y", e.target.value)}
+              />
+            </label>
+            <label className="text-xs">
+              Taille
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                className="input mt-1"
+                style={{ width: "4.5rem" }}
+                value={layout[key].size}
+                onChange={(e) => updateField(key, "size", e.target.value)}
               />
             </label>
           </div>
@@ -249,10 +262,11 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
           left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
           top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
         };
+        const fontSize = `${layout[key].size}cqw`;
         if (FLAG_KEYS.includes(key)) {
           return (
             <span key={key} style={pos} title={OVERLAY_ELEMENT_LABELS[key]}>
-              <CountryBadge countryCode="XX" fontSize={PREVIEW_ELEMENT_STYLE[key].fontSize} />
+              <CountryBadge countryCode="XX" fontSize={fontSize} />
             </span>
           );
         }
@@ -264,7 +278,7 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
             title={OVERLAY_ELEMENT_LABELS[key]}
             style={{
               ...pos,
-              fontSize: style.fontSize,
+              fontSize,
               fontWeight: style.weight,
               color: style.color,
               textShadow: "0 2px 6px rgba(0,0,0,0.85)",

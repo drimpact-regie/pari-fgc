@@ -64,14 +64,12 @@ function Text({
   layout,
   elementKey,
   children,
-  size,
   color = "#fff",
   weight = 800,
 }: {
   layout: OverlayLayout;
   elementKey: OverlayElementKey;
   children: React.ReactNode;
-  size: string;
   color?: string;
   weight?: number;
 }) {
@@ -79,7 +77,7 @@ function Text({
     <span
       style={{
         ...positionStyle(layout[elementKey]),
-        fontSize: size,
+        fontSize: `${layout[elementKey].size}cqw`,
         fontWeight: weight,
         color,
         textShadow: TEXT_SHADOW,
@@ -157,48 +155,48 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
         )}
 
         {match.groupLabel && (
-          <Text layout={layout} elementKey="stage" size="1.6cqw" color="#fbbf24" weight={700}>
+          <Text layout={layout} elementKey="stage" color="#fbbf24" weight={700}>
             {match.groupLabel}
           </Text>
         )}
         {match.ftGames && (
-          <Text layout={layout} elementKey="ft" size="1.3cqw" color="#9ca3af" weight={600}>
+          <Text layout={layout} elementKey="ft" color="#9ca3af" weight={600}>
             FT{match.ftGames}
           </Text>
         )}
 
         {match.competitorA?.countryCode && (
           <span style={positionStyle(layout.flagA)}>
-            <CountryBadge countryCode={match.competitorA.countryCode} fontSize="1.1cqw" />
+            <CountryBadge countryCode={match.competitorA.countryCode} fontSize={`${layout.flagA.size}cqw`} />
           </span>
         )}
-        <Text layout={layout} elementKey="nameA" size="1.7cqw">
+        <Text layout={layout} elementKey="nameA">
           {match.competitorA?.name ?? "?"}
         </Text>
         {match.competitorA?.tag && (
-          <Text layout={layout} elementKey="tagA" size="1.1cqw" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagA" color="#d1d5db" weight={600}>
             {match.competitorA.tag}
           </Text>
         )}
 
         {match.competitorB?.countryCode && (
           <span style={positionStyle(layout.flagB)}>
-            <CountryBadge countryCode={match.competitorB.countryCode} fontSize="1.1cqw" />
+            <CountryBadge countryCode={match.competitorB.countryCode} fontSize={`${layout.flagB.size}cqw`} />
           </span>
         )}
-        <Text layout={layout} elementKey="nameB" size="1.7cqw">
+        <Text layout={layout} elementKey="nameB">
           {match.competitorB?.name ?? "?"}
         </Text>
         {match.competitorB?.tag && (
-          <Text layout={layout} elementKey="tagB" size="1.1cqw" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagB" color="#d1d5db" weight={600}>
             {match.competitorB.tag}
           </Text>
         )}
 
-        <Text layout={layout} elementKey="scoreA" size="2cqw" weight={900}>
+        <Text layout={layout} elementKey="scoreA" weight={900}>
           {match.competitorA?.score ?? 0}
         </Text>
-        <Text layout={layout} elementKey="scoreB" size="2cqw" weight={900}>
+        <Text layout={layout} elementKey="scoreB" weight={900}>
           {match.competitorB?.score ?? 0}
         </Text>
       </div>
