@@ -8,10 +8,21 @@ import { normalizeTwitchChannel } from "@/lib/normalize";
 import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
 import { assertValidOverlayBackgroundDataUrl, InvitationalOverlayImageError } from "@/lib/invitationalOverlayImage";
 import { OVERLAY_ELEMENT_KEYS } from "@/lib/invitationalOverlayLayout";
+import { BRACKET_OVERLAY_ELEMENT_KEYS } from "@/lib/invitationalBracketOverlayLayout";
 
-const overlayPositionSchema = z.object({ x: z.number(), y: z.number() });
+// size optionnel (voir mergePositionedLayout : retombe sur le défaut si
+// absent/invalide) — mais doit être DÉCLARÉ ici pour survivre au parsing,
+// sinon zod le supprime silencieusement comme n'importe quelle clé non
+// reconnue d'un z.object() (repéré en ajoutant le layout du bracket
+// ci-dessous : le champ "Taille" de l'éditeur "match en cours" ne
+// persistait en réalité jamais via cette route, seule la lecture avait été
+// vérifiée).
+const overlayPositionSchema = z.object({ x: z.number(), y: z.number(), size: z.number().positive().optional() });
 const overlayLayoutSchema = z.object(
   Object.fromEntries(OVERLAY_ELEMENT_KEYS.map((key) => [key, overlayPositionSchema.optional()])),
+);
+const bracketOverlayLayoutSchema = z.object(
+  Object.fromEntries(BRACKET_OVERLAY_ELEMENT_KEYS.map((key) => [key, overlayPositionSchema.optional()])),
 );
 
 const updateSchema = z.object({
@@ -34,6 +45,11 @@ const updateSchema = z.object({
   // overlayBackgroundUrl : chaîne vide = retire le fond personnalisé.
   overlayBackgroundUrl: z.string().optional(),
   overlayLayout: overlayLayoutSchema.optional(),
+  // Personnalisation de l'overlay OBS "bracket/classement" — voir
+  // lib/invitationalBracketOverlayLayout.ts (positions) et
+  // lib/invitationalBracketTemplate.ts (gabarit 8/16/32).
+  bracketOverlayLayout: bracketOverlayLayoutSchema.optional(),
+  bracketSize: z.union([z.literal(8), z.literal(16), z.literal(32)]).nullable().optional(),
 });
 
 /**
@@ -115,6 +131,10 @@ export async function PATCH(
         ? { overlayBackgroundUrl: parsed.data.overlayBackgroundUrl || null }
         : {}),
       ...(parsed.data.overlayLayout !== undefined ? { overlayLayout: parsed.data.overlayLayout } : {}),
+      ...(parsed.data.bracketOverlayLayout !== undefined
+        ? { bracketOverlayLayout: parsed.data.bracketOverlayLayout }
+        : {}),
+      ...(parsed.data.bracketSize !== undefined ? { bracketSize: parsed.data.bracketSize } : {}),
     },
   });
 

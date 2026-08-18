@@ -11,6 +11,10 @@
  * convertit ces coordonnées en pourcentages pour un rendu responsive.
  */
 
+import { mergePositionedLayout, OVERLAY_CANVAS_HEIGHT, OVERLAY_CANVAS_WIDTH, type OverlayPosition } from "./invitationalOverlayCanvas";
+
+export { OVERLAY_CANVAS_WIDTH, OVERLAY_CANVAS_HEIGHT, type OverlayPosition };
+
 export const OVERLAY_ELEMENT_KEYS = [
   "nameA",
   "tagA",
@@ -39,22 +43,7 @@ export const OVERLAY_ELEMENT_LABELS: Record<OverlayElementKey, string> = {
   ft: "FT",
 };
 
-export interface OverlayPosition {
-  x: number;
-  y: number;
-  /**
-   * Taille de police en cqw (% de la largeur du cadre 16:9) — même unité que
-   * le rendu réel (voir OverlayMatchView), donc directement comparable entre
-   * l'aperçu et le stream. Chaque event/jeu a ses propres contraintes de
-   * place dans son visuel : pas de taille universelle qui convienne à tous.
-   */
-  size: number;
-}
-
 export type OverlayLayout = Record<OverlayElementKey, OverlayPosition>;
-
-export const OVERLAY_CANVAS_WIDTH = 1920;
-export const OVERLAY_CANVAS_HEIGHT = 1080;
 
 /**
  * Disposition par défaut si l'event n'a rien configuré (voir
@@ -78,33 +67,13 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
   scoreB: { x: 1430, y: 150, size: 2 },
 };
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function isValidXY(value: unknown): value is { x: number; y: number } {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return isFiniteNumber(candidate.x) && isFiniteNumber(candidate.y);
-}
-
 /**
  * Complète un layout stocké (potentiellement partiel, ou totalement absent
  * — event pas encore configuré) avec les valeurs par défaut, élément par
- * élément, et même champ par champ à l'intérieur d'un élément : un layout
- * enregistré avant l'ajout du champ "size" (ou avec une valeur corrompue
- * pour ce seul champ) garde ses positions X/Y déjà réglées et récupère
- * juste la taille par défaut, sans réinitialiser tout l'élément — le JSON
- * stocké n'est pas validé au niveau de la base.
+ * élément, et même champ par champ à l'intérieur d'un élément (voir
+ * mergePositionedLayout) — le JSON stocké n'est pas validé au niveau de la
+ * base.
  */
 export function mergeOverlayLayout(stored: unknown): OverlayLayout {
-  const source = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
-  const result = {} as OverlayLayout;
-  for (const key of OVERLAY_ELEMENT_KEYS) {
-    const candidate = source[key] as Record<string, unknown> | undefined;
-    const xy = isValidXY(candidate) ? { x: candidate!.x as number, y: candidate!.y as number } : DEFAULT_OVERLAY_LAYOUT[key];
-    const size = isFiniteNumber(candidate?.size) && candidate!.size > 0 ? (candidate!.size as number) : DEFAULT_OVERLAY_LAYOUT[key].size;
-    result[key] = { x: xy.x, y: xy.y, size };
-  }
-  return result;
+  return mergePositionedLayout(OVERLAY_ELEMENT_KEYS, DEFAULT_OVERLAY_LAYOUT, stored);
 }

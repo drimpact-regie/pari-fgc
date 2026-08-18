@@ -389,6 +389,21 @@ model InvitationalEvent {
   overlayBackgroundUrl String? @db.Text
   overlayLayout        Json?
 
+  // Personnalisation de l'overlay OBS "bracket / classement" (voir
+  // /overlay/invitational/[eventId]/bracket) : mêmes principes que
+  // overlayLayout ci-dessus (repère 1920x1080, voir
+  // lib/invitationalBracketOverlayLayout.ts) mais pour les encadrés
+  // classement/liste de matchs des formats sans bracket (pas de fond
+  // personnalisable ici, contrairement à l'overlay "match en cours").
+  // bracketSize (8/16/32, null = pas encore choisi) détermine le gabarit de
+  // colonnes/cases affiché pour un format BRACKET_SINGLE/BRACKET_DOUBLE
+  // (voir lib/invitationalBracketTemplate.ts) — sans notion de round
+  // numérique dans les matchs eux-mêmes (voir InvitationalMatch plus bas),
+  // c'est la seule donnée qui permette de savoir combien de colonnes/cases
+  // dessiner avant que tous les rounds soient joués.
+  bracketOverlayLayout Json?
+  bracketSize          Int?
+
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
   bets        InvitationalBet[]

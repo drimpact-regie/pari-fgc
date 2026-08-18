@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 
 import InvitationalBracket, { type BracketColumn } from "@/components/InvitationalBracket";
 import CountryBadge from "@/components/overlay/CountryBadge";
+import {
+  DEFAULT_BRACKET_OVERLAY_LAYOUT,
+  OVERLAY_CANVAS_HEIGHT,
+  OVERLAY_CANVAS_WIDTH,
+  type BracketOverlayLayout,
+} from "@/lib/invitationalBracketOverlayLayout";
 
 interface OverlayCompetitor {
   name: string;
@@ -46,6 +52,7 @@ interface OverlayBracketData {
   standings: StandingsRow[] | null;
   matches: MatchListEntry[] | null;
   upcoming: UpcomingMatch[];
+  bracketOverlayLayout: BracketOverlayLayout;
 }
 
 const POLL_INTERVAL_MS = 5000;
@@ -68,6 +75,39 @@ function formatTimeRange(startMin: string | null, startMax: string | null): stri
   const min = fmt(startMin);
   const max = fmt(startMax);
   return min === max ? min : `${min} - ${max}`;
+}
+
+/**
+ * Position + échelle d'un encadré du bracket overlay (voir
+ * lib/invitationalBracketOverlayLayout.ts) — une échelle CSS uniforme
+ * (transform: scale) plutôt qu'une police en cqw comme sur l'overlay "match
+ * en cours" : ces encadrés sont des tableaux à plusieurs lignes, une
+ * échelle globale suffit à les agrandir/réduire sans avoir à re-décliner
+ * chaque taille de police interne en unité relative.
+ */
+function PositionedPanel({
+  layout,
+  elementKey,
+  children,
+}: {
+  layout: BracketOverlayLayout;
+  elementKey: keyof BracketOverlayLayout;
+  children: React.ReactNode;
+}) {
+  const pos = layout[elementKey];
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${(pos.x / OVERLAY_CANVAS_WIDTH) * 100}%`,
+        top: `${(pos.y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+        transform: `scale(${pos.size})`,
+        transformOrigin: "top left",
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 function StandingsTable({ standings }: { standings: StandingsRow[] }) {
@@ -117,7 +157,14 @@ function UpcomingPanel({ upcoming }: { upcoming: UpcomingMatch[] }) {
   return (
     <div
       className="flex flex-col gap-2 px-4 py-3 rounded-lg"
-      style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)", minWidth: "18rem" }}
+      style={{
+        position: "absolute",
+        left: "2%",
+        bottom: "2%",
+        background: "rgba(11,13,18,0.72)",
+        backdropFilter: "blur(4px)",
+        minWidth: "18rem",
+      }}
     >
       <p style={{ fontSize: "0.75rem", fontWeight: 800, color: "#fbbf24", letterSpacing: "0.04em", textTransform: "uppercase" }}>
         Prochains matchs
@@ -167,26 +214,49 @@ export default function OverlayBracketView({ eventId }: { eventId: string }) {
 
   if (!data) return null;
 
-  return (
-    <div className="flex flex-col gap-4 p-4">
-      {data.isBracketFormat && data.bracket ? (
-        <InvitationalBracket columns={data.bracket} />
-      ) : (
-        <div className="flex items-start gap-6">
-          {data.standings && data.standings.length > 0 && (
-            <div className="rounded-lg px-2 py-2" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
-              <StandingsTable standings={data.standings} />
-            </div>
-          )}
-          {data.matches && data.matches.length > 0 && (
-            <div className="rounded-lg px-4 py-3" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
-              <MatchListTable matches={data.matches} />
-            </div>
-          )}
-        </div>
-      )}
+  const layout = data.bracketOverlayLayout ?? DEFAULT_BRACKET_OVERLAY_LAYOUT;
 
-      <UpcomingPanel upcoming={data.upcoming} />
+  return (
+    // Même verrouillage 16:9 que l'overlay "match en cours" (voir
+    // components/overlay/OverlayMatchView.tsx) : indispensable pour que les
+    // positions en % ci-dessous tombent au même endroit quelle que soit la
+    // taille réelle de la Browser Source OBS.
+    <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      <div
+        style={{
+          position: "relative",
+          width: "100%",
+          aspectRatio: "16/9",
+          maxHeight: "100%",
+          overflow: "hidden",
+          containerType: "inline-size",
+        }}
+      >
+        {data.isBracketFormat && data.bracket ? (
+          <div className="p-4">
+            <InvitationalBracket columns={data.bracket} />
+          </div>
+        ) : (
+          <>
+            {data.standings && data.standings.length > 0 && (
+              <PositionedPanel layout={layout} elementKey="standings">
+                <div className="rounded-lg px-2 py-2" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
+                  <StandingsTable standings={data.standings} />
+                </div>
+              </PositionedPanel>
+            )}
+            {data.matches && data.matches.length > 0 && (
+              <PositionedPanel layout={layout} elementKey="matchList">
+                <div className="rounded-lg px-4 py-3" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
+                  <MatchListTable matches={data.matches} />
+                </div>
+              </PositionedPanel>
+            )}
+          </>
+        )}
+
+        <UpcomingPanel upcoming={data.upcoming} />
+      </div>
     </div>
   );
 }

@@ -7,8 +7,11 @@ import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
+import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBracketOverlayLayoutEditor";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
+import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
+import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
 import { INVITATIONAL_TEMPLATE_FILENAMES } from "@/lib/invitationalTemplates";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +99,13 @@ export default async function AdminInvitationalEventPage({
         initialBackgroundUrl={event.overlayBackgroundUrl}
         initialLayout={mergeOverlayLayout(event.overlayLayout)}
       />
+
+      {!isInvitationalBracketFormat(event.format) && (
+        <InvitationalBracketOverlayLayoutEditor
+          eventId={event.id}
+          initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
+        />
+      )}
 
       {matches.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>

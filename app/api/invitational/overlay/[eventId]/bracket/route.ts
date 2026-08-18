@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { buildInvitationalBracketColumns } from "@/lib/invitationalBracket";
 import { computeStandings } from "@/lib/invitationalStandings";
 import { computeSchedule } from "@/lib/invitationalRundown";
-
-const BRACKET_FORMATS = new Set(["BRACKET_SINGLE", "BRACKET_DOUBLE"]);
+import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
+import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
 
 function competitorView(c: { name: string; tag: string | null; countryCode: string | null } | null) {
   if (!c) return null;
@@ -40,7 +40,7 @@ export async function GET(
     prisma.invitationalCompetitor.findMany({ where: { eventId } }),
   ]);
 
-  const isBracketFormat = BRACKET_FORMATS.has(event.format);
+  const isBracketFormat = isInvitationalBracketFormat(event.format);
 
   const bracket = isBracketFormat
     ? buildInvitationalBracketColumns(matches).map((column) => ({
@@ -132,5 +132,6 @@ export async function GET(
     standings,
     matches: matchList,
     upcoming,
+    bracketOverlayLayout: mergeBracketOverlayLayout(event.bracketOverlayLayout),
   });
 }
