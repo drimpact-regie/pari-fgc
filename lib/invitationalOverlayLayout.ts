@@ -15,10 +15,11 @@ export const OVERLAY_ELEMENT_KEYS = [
   "nameA",
   "tagA",
   "flagA",
+  "scoreA",
   "nameB",
   "tagB",
   "flagB",
-  "score",
+  "scoreB",
   "stage",
   "ft",
 ] as const;
@@ -29,10 +30,11 @@ export const OVERLAY_ELEMENT_LABELS: Record<OverlayElementKey, string> = {
   nameA: "Nom A",
   tagA: "Tag A",
   flagA: "Drapeau A",
+  scoreA: "Score A",
   nameB: "Nom B",
   tagB: "Tag B",
   flagB: "Drapeau B",
-  score: "Score",
+  scoreB: "Score B",
   stage: "Étape",
   ft: "FT",
 };
@@ -49,10 +51,12 @@ export const OVERLAY_CANVAS_HEIGHT = 1080;
 
 /**
  * Disposition par défaut si l'event n'a rien configuré (voir
- * mergeOverlayLayout) — reprend approximativement l'agencement de la
- * version "carte" précédente (joueur A à gauche, B à droite, score au
- * centre, étape/FT au-dessus), mais en repère absolu 1920x1080 pour que
- * l'overlay reste utilisable sans configuration.
+ * mergeOverlayLayout) — joueur A à gauche, B à droite, étape/FT en haut,
+ * repère absolu 1920x1080 pour que l'overlay reste utilisable sans
+ * configuration. Score A/B positionnés à côté de leur joueur respectif (pas
+ * un score combiné centré) : chaque prestataire a en général une zone
+ * dédiée par joueur dans son propre visuel (ex. une forme colorée par
+ * joueur) — à ajuster à cette zone précise via les positions ci-dessous.
  */
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
   stage: { x: 700, y: 40 },
@@ -60,10 +64,11 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
   flagA: { x: 120, y: 160 },
   nameA: { x: 180, y: 150 },
   tagA: { x: 180, y: 195 },
-  score: { x: 900, y: 150 },
+  scoreA: { x: 620, y: 150 },
   flagB: { x: 1850, y: 160 },
   nameB: { x: 1500, y: 150 },
   tagB: { x: 1500, y: 195 },
+  scoreB: { x: 1430, y: 150 },
 };
 
 function isFiniteNumber(value: unknown): value is number {

@@ -12,6 +12,29 @@ import {
   type OverlayLayout,
 } from "@/lib/invitationalOverlayLayout";
 import { MAX_OVERLAY_BACKGROUND_BASE64_LENGTH } from "@/lib/invitationalOverlayImage";
+import CountryBadge from "@/components/overlay/CountryBadge";
+
+/**
+ * Taille/couleur/poids par élément — copie exacte de ce que rend
+ * components/overlay/OverlayMatchView.tsx pour CET élément, afin que
+ * l'aperçu reflète fidèlement le rendu réel (plutôt qu'une étiquette
+ * générique à taille uniforme, qui donnait une impression de chevauchement
+ * ne correspondant pas à ce qui s'affiche vraiment sur le stream).
+ */
+const PREVIEW_ELEMENT_STYLE: Record<OverlayElementKey, { fontSize: string; color: string; weight: number }> = {
+  stage: { fontSize: "1.6cqw", color: "#fbbf24", weight: 700 },
+  ft: { fontSize: "1.3cqw", color: "#9ca3af", weight: 600 },
+  nameA: { fontSize: "2.4cqw", color: "#fff", weight: 800 },
+  tagA: { fontSize: "1.4cqw", color: "#d1d5db", weight: 600 },
+  scoreA: { fontSize: "3cqw", color: "#fff", weight: 900 },
+  nameB: { fontSize: "2.4cqw", color: "#fff", weight: 800 },
+  tagB: { fontSize: "1.4cqw", color: "#d1d5db", weight: 600 },
+  scoreB: { fontSize: "3cqw", color: "#fff", weight: 900 },
+  flagA: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
+  flagB: { fontSize: "1.1cqw", color: "#fff", weight: 700 },
+};
+
+const FLAG_KEYS: OverlayElementKey[] = ["flagA", "flagB"];
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -220,22 +243,37 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
         // eslint-disable-next-line @next/next/no-img-element -- aperçu d'une image en data: URL locale.
         <img src={backgroundUrl} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       )}
-      {OVERLAY_ELEMENT_KEYS.map((key) => (
-        <span
-          key={key}
-          className="absolute px-1 py-0.5 rounded font-semibold whitespace-nowrap"
-          style={{
-            left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
-            top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
-            fontSize: "2.2cqw",
-            lineHeight: 1.4,
-            background: "rgba(0,0,0,0.7)",
-            color: "#fbbf24",
-          }}
-        >
-          {OVERLAY_ELEMENT_LABELS[key]}
-        </span>
-      ))}
+      {OVERLAY_ELEMENT_KEYS.map((key) => {
+        const pos = {
+          position: "absolute" as const,
+          left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
+          top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+        };
+        if (FLAG_KEYS.includes(key)) {
+          return (
+            <span key={key} style={pos} title={OVERLAY_ELEMENT_LABELS[key]}>
+              <CountryBadge countryCode="XX" fontSize={PREVIEW_ELEMENT_STYLE[key].fontSize} />
+            </span>
+          );
+        }
+        const style = PREVIEW_ELEMENT_STYLE[key];
+        return (
+          <span
+            key={key}
+            className="whitespace-nowrap"
+            title={OVERLAY_ELEMENT_LABELS[key]}
+            style={{
+              ...pos,
+              fontSize: style.fontSize,
+              fontWeight: style.weight,
+              color: style.color,
+              textShadow: "0 2px 6px rgba(0,0,0,0.85)",
+            }}
+          >
+            {OVERLAY_ELEMENT_LABELS[key]}
+          </span>
+        );
+      })}
     </div>
   );
 }

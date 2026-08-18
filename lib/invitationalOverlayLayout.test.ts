@@ -24,11 +24,11 @@ describe("mergeOverlayLayout", () => {
   it("falls back to the default for a single corrupted element without breaking the rest", () => {
     const merged = mergeOverlayLayout({
       nameA: { x: 10, y: 20 },
-      score: { x: "not-a-number", y: 20 },
+      scoreA: { x: "not-a-number", y: 20 },
       tagA: null,
     });
     expect(merged.nameA).toEqual({ x: 10, y: 20 });
-    expect(merged.score).toEqual(DEFAULT_OVERLAY_LAYOUT.score);
+    expect(merged.scoreA).toEqual(DEFAULT_OVERLAY_LAYOUT.scoreA);
     expect(merged.tagA).toEqual(DEFAULT_OVERLAY_LAYOUT.tagA);
   });
 

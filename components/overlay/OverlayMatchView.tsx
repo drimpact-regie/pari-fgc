@@ -195,18 +195,12 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
           </Text>
         )}
 
-        <span
-          style={{
-            ...positionStyle(layout.score),
-            fontSize: "3cqw",
-            fontWeight: 900,
-            color: "#fff",
-            textShadow: TEXT_SHADOW,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {match.competitorA?.score ?? 0} — {match.competitorB?.score ?? 0}
-        </span>
+        <Text layout={layout} elementKey="scoreA" size="3cqw" weight={900}>
+          {match.competitorA?.score ?? 0}
+        </Text>
+        <Text layout={layout} elementKey="scoreB" size="3cqw" weight={900}>
+          {match.competitorB?.score ?? 0}
+        </Text>
       </div>
     </div>
   );
