@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { buildInvitationalBracketColumns } from "@/lib/invitationalBracket";
+import { buildTemplatedBracketColumns, isBracketSize } from "@/lib/invitationalBracketTemplate";
 import { computeStandings } from "@/lib/invitationalStandings";
 import { computeSchedule } from "@/lib/invitationalRundown";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
@@ -10,6 +11,32 @@ import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
 function competitorView(c: { name: string; tag: string | null; countryCode: string | null } | null) {
   if (!c) return null;
   return { name: c.name, tag: c.tag, countryCode: c.countryCode };
+}
+
+function bracketMatchView(m: {
+  id: string;
+  competitorA: { name: string; tag: string | null; countryCode: string | null } | null;
+  placeholderA: string | null;
+  competitorB: { name: string; tag: string | null; countryCode: string | null } | null;
+  placeholderB: string | null;
+  scoreA: number | null;
+  scoreB: number | null;
+  status: "NOT_OPEN" | "OPEN" | "CLOSED" | "COMPLETED";
+  winnerId: string | null;
+  competitorAId: string | null;
+  competitorBId: string | null;
+}) {
+  return {
+    id: m.id,
+    competitorA: competitorView(m.competitorA) ?? (m.placeholderA ? { name: m.placeholderA, tag: null, countryCode: null } : null),
+    competitorB: competitorView(m.competitorB) ?? (m.placeholderB ? { name: m.placeholderB, tag: null, countryCode: null } : null),
+    scoreA: m.scoreA,
+    scoreB: m.scoreB,
+    status: m.status,
+    winnerId: m.winnerId,
+    competitorAId: m.competitorAId,
+    competitorBId: m.competitorBId,
+  };
 }
 
 /**
@@ -52,22 +79,29 @@ export async function GET(
 
   const isBracketFormat = isInvitationalBracketFormat(event.format);
 
-  const bracket = isBracketFormat
-    ? buildInvitationalBracketColumns(matches).map((column) => ({
-        label: column.label,
-        matches: column.matches.map((m) => ({
-          id: m.id,
-          competitorA: competitorView(m.competitorA) ?? (m.placeholderA ? { name: m.placeholderA, tag: null, countryCode: null } : null),
-          competitorB: competitorView(m.competitorB) ?? (m.placeholderB ? { name: m.placeholderB, tag: null, countryCode: null } : null),
-          scoreA: m.scoreA,
-          scoreB: m.scoreB,
-          status: m.status,
-          winnerId: m.winnerId,
-          competitorAId: m.competitorAId,
-          competitorBId: m.competitorBId,
-        })),
-      }))
-    : null;
+  // Taille choisie (voir InvitationalEvent.bracketSize, Partie 2 du prompt
+  // overlay bracket) : gabarit de colonnes/cases fixe avec vraies lignes de
+  // connexion (voir lib/invitationalBracketTemplate.ts et
+  // components/InvitationalBracket.tsx). Sans taille choisie, retombe sur
+  // l'ancien regroupement simple (une colonne par groupLabel rencontré,
+  // sans gabarit ni lignes de connexion) — comportement historique
+  // inchangé pour un event pas encore configuré.
+  let bracket: Array<{ key: string; label: string; side: string; matches: (ReturnType<typeof bracketMatchView> | null)[] }> | null = null;
+  if (isBracketFormat) {
+    bracket = isBracketSize(event.bracketSize)
+      ? buildTemplatedBracketColumns(matches, event.format, event.bracketSize).map((column) => ({
+          key: column.key,
+          label: column.label,
+          side: column.side,
+          matches: column.matches.map((m) => (m ? bracketMatchView(m) : null)),
+        }))
+      : buildInvitationalBracketColumns(matches).map((column) => ({
+          key: column.label,
+          label: column.label,
+          side: "legacy",
+          matches: column.matches.map((m) => bracketMatchView(m)),
+        }));
+  }
 
   const standings = !isBracketFormat
     ? computeStandings(matches, competitors)

@@ -10,6 +10,7 @@ import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChan
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
 import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBracketOverlayLayoutEditor";
+import InvitationalBracketSizeEditor from "@/components/InvitationalBracketSizeEditor";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
@@ -101,7 +102,9 @@ export default async function PartnerInvitationalEventPage({
         initialLayout={mergeOverlayLayout(event.overlayLayout)}
       />
 
-      {!isInvitationalBracketFormat(event.format) && (
+      {isInvitationalBracketFormat(event.format) ? (
+        <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />
+      ) : (
         <InvitationalBracketOverlayLayoutEditor
           eventId={event.id}
           initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
