@@ -97,5 +97,15 @@ export const config = {
   // jamais passer par la redirection /login (repéré via un drapeau qui
   // redirigeait silencieusement vers /login au lieu de s'afficher sur
   // l'overlay OBS, chargé sans session navigateur).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|flags/|templates/).*)"],
+  //
+  // /icons, manifest.webmanifest, sw.js, offline.html, icon.png,
+  // apple-icon.png : mêmes assets PWA (manifeste, service worker, icônes)
+  // que le navigateur va chercher AVANT toute connexion — un visiteur non
+  // connecté doit pouvoir installer l'app sans être d'abord redirigé vers
+  // /login (sinon le manifeste/service worker reçoit une page HTML de
+  // login au lieu du JSON/JS attendu, et Chrome n'affiche jamais "Ajouter
+  // à l'écran d'accueil").
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|flags/|templates/|icons/|manifest.webmanifest|sw.js|offline.html|icon.png|apple-icon.png).*)",
+  ],
 };

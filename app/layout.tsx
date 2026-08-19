@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import RegisterServiceWorker from "./register-sw";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,6 +16,19 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Impact'O Bet",
   description: "Paris entre amis sur les brackets start.gg",
+  // iOS Safari ne lit pas manifest.ts pour l'écran d'accueil : ces balises
+  // apple-* sont ce qui déclenche réellement le mode standalone sur iOS.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Impact'O Bet",
+  },
+};
+
+// themeColor/colorScheme vivent dans `viewport` (pas `metadata`) depuis
+// Next 14 — sinon Next émet un avertissement de dépréciation au build.
+export const viewport: Viewport = {
+  themeColor: "#0B0E17",
 };
 
 /**
@@ -32,7 +46,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="fr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <RegisterServiceWorker />
+      </body>
     </html>
   );
 }
