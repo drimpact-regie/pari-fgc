@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
-import { getStandings, StartggApiError } from "@/lib/startgg";
+import { getEventEntrants, StartggApiError } from "@/lib/startgg";
 
 const pickSchema = z.object({
   tournamentId: z.string().min(1),
@@ -41,17 +41,15 @@ export async function POST(request: Request) {
     );
   }
 
-  let standings;
+  let entrants;
   try {
-    standings = await getStandings(tournament.eventSlug);
+    entrants = await getEventEntrants(tournament.eventSlug);
   } catch (err) {
     const message = err instanceof StartggApiError ? err.message : "Erreur start.gg";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
-  const entrantById = new Map(
-    standings.filter((s) => s.entrant).map((s) => [s.entrant!.id, s.entrant!.name]),
-  );
+  const entrantById = new Map(entrants.map((e) => [e.id, e.name]));
 
   const picks = uniqueIds
     .map((id) => {
