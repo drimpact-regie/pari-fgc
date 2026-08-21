@@ -333,6 +333,28 @@ const EVENT_TOP_SEEDS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * Liste brute des inscrits à l'event, indépendamment du classement/bracket.
+ * Contrairement à `standings` (rempli seulement une fois des sets terminés),
+ * `entrants` est disponible dès la clôture des inscriptions — sert à
+ * permettre les pronostics Top 8 avant même que le bracket ait démarré.
+ */
+const EVENT_ENTRANTS_QUERY = /* GraphQL */ `
+  query EventEntrants($eventSlug: String!, $page: Int!, $perPage: Int!) {
+    event(slug: $eventSlug) {
+      entrants(query: { perPage: $perPage, page: $page }) {
+        pageInfo {
+          totalPages
+        }
+        nodes {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
+
 /** Équivalent de Req_StatsJoueurs: classement (placement) par joueur. */
 const STANDINGS_QUERY = /* GraphQL */ `
   query PlayerStandings($eventSlug: String!, $page: Int!, $perPage: Int!) {
@@ -625,6 +647,28 @@ export async function getStandings(
     };
   });
   return nodes.map(normalizeStanding);
+}
+
+/**
+ * Liste des inscrits à l'event (indépendante du classement) — disponible dès
+ * la clôture des inscriptions, avant même que le bracket ne soit lancé.
+ * Sert de source pour les pronostics Top 8 pendant que `getStandings` est
+ * encore vide (voir EVENT_ENTRANTS_QUERY).
+ */
+export async function getEventEntrants(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggEntrant[]> {
+  const { nodes } = await fetchAllPages<RawStartggEntrant>(async (page) => {
+    const data = await callStartGG<{
+      event: {
+        entrants: { pageInfo: { totalPages: number }; nodes: RawStartggEntrant[] } | null;
+      } | null;
+    }>(EVENT_ENTRANTS_QUERY, { eventSlug, page, perPage: PER_PAGE });
+
+    if (!data.event?.entrants) return null;
+    return { nodes: data.event.entrants.nodes, totalPages: data.event.entrants.pageInfo.totalPages };
+  });
+  return nodes.map((entrant) => normalizeEntrant(entrant)).filter((e): e is StartggEntrant => e !== null);
 }
 
 /**
