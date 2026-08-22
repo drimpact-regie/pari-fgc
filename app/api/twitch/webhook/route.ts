@@ -65,13 +65,19 @@ function accountLinkHint(): string {
  * Nomenclature unifiée sous "!bet" (avec "!top8" gardé en alias historique) :
  * envoyée sur "!bet", "!bet aide" ou "!bet help".
  */
-const HELP_TEXT =
-  "Paris chat : !bet [r<round>] <joueur> (vainqueur d'un match, précise le round si ambigu ex. \"!bet r1 <joueur>\") | " +
-  "!bet mvc <personnage> <0-8> (MVC) | !bet reset oui|non (reset de bracket) | " +
-  "!bet top8 <j1, j2, ..., j8> (pronostic top 8, alias : !top8). " +
-  "Compte Twitch lié requis pour mvc/reset" +
-  (SITE_URL ? ` : ${SITE_URL}/account` : "") +
-  ".";
+// Un message par ligne (plutôt qu'une seule longue phrase à rallonge séparée
+// par des "|") : dans le chat Twitch, un message unique trop long se
+// retrouve tassé sur plusieurs lignes rewrappées sans rapport avec les
+// commandes elles-mêmes — illisible. Envoyées séparément (voir leur usage
+// plus bas), chaque commande tient sur sa propre ligne dans le chat.
+const HELP_LINES = [
+  "📋 Commandes de paris chat :",
+  '!bet [r<round>] <joueur> — vainqueur d\'un match (précise le round si ambigu, ex. "!bet r1 <joueur>")',
+  "!bet mvc <personnage> <0-8> — MVC",
+  "!bet reset oui|non — reset de bracket",
+  "!bet top8 <j1>, <j2>, ..., <j8> — pronostic Top 8 (alias : !top8)",
+  `Compte Twitch lié requis pour mvc/reset/top8${SITE_URL ? ` : ${SITE_URL}/account` : ""}`,
+];
 
 const BET_COMMANDS = ["!bet", "!pari"];
 const TOP8_COMMANDS = ["!top8", "!top 8"];
@@ -758,7 +764,9 @@ export async function POST(request: Request) {
   // "!bet" seul, "!bet aide" ou "!bet help" : liste des commandes, sans
   // avoir besoin d'un tournoi en cours.
   if (betTarget !== null && isHelpCommand(betTarget)) {
-    await reply(broadcasterId, HELP_TEXT);
+    for (const line of HELP_LINES) {
+      await reply(broadcasterId, line);
+    }
     return NextResponse.json({ ok: true });
   }
 
