@@ -146,7 +146,9 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
   const sets = await fetchPhaseSets(eventSlug, phase.id);
   if (sets.length === 0) {
     throw new RegieError(
-      `Le bracket "${phase.name}" n'est pas encore généré côté start.gg (entrants pas encore seedés, ou format pas encore lancé) — réessaie une fois le bracket disponible.`,
+      `Aucun match généré côté start.gg pour l'étape "${phase.name}" (dernière étape de l'event, celle importée par le mode régie). ` +
+        `Si une étape précédente (poules, qualifications...) n'est pas encore terminée, le bracket final n'a probablement pas encore été seedé — ` +
+        `réessaie une fois cette étape terminée et le bracket réellement généré sur start.gg.`,
     );
   }
 
