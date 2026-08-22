@@ -152,6 +152,15 @@ export interface StartggSeed {
 export interface StartggPhase {
   id: string;
   name: string;
+  /**
+   * Type de bracket start.gg pour cette étape (ex. "SINGLE_ELIMINATION",
+   * "DOUBLE_ELIMINATION", "ROUND_ROBIN", "SWISS"...), null si non exposé —
+   * sert au mode régie (lib/tournamentRegie.ts) pour choisir le format
+   * Invitational équivalent. Valeurs de l'enum non vérifiées contre l'API
+   * réelle depuis cet environnement (pas d'accès réseau sortant) ; à
+   * confirmer sur la première activation en conditions réelles.
+   */
+  bracketType: string | null;
 }
 
 export interface StartggStanding {
@@ -309,6 +318,7 @@ const EVENT_PHASES_QUERY = /* GraphQL */ `
       phases {
         id
         name
+        bracketType
       }
     }
   }
@@ -513,10 +523,16 @@ export async function getEventPhases(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggPhase[]> {
   const data = await callStartGG<{
-    event: { phases: { id: string | number; name: string }[] | null } | null;
+    event: {
+      phases: { id: string | number; name: string; bracketType: string | null }[] | null;
+    } | null;
   }>(EVENT_PHASES_QUERY, { eventSlug });
 
-  return (data.event?.phases ?? []).map((p) => ({ id: String(p.id), name: p.name }));
+  return (data.event?.phases ?? []).map((p) => ({
+    id: String(p.id),
+    name: p.name,
+    bracketType: p.bracketType,
+  }));
 }
 
 /** Forme brute d'un entrant telle que renvoyée par l'API (avant normalisation). */

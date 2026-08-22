@@ -140,6 +140,9 @@ export default async function AdminTournamentsPage({
                     <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>
                       Voir
                     </Link>
+                    <Link href={`/admin/tournaments/${t.id}/regie`} className="underline" style={{ color: "var(--accent)" }}>
+                      Régie
+                    </Link>
                     <DeleteTournamentButton tournamentId={t.id} tournamentName={t.name} />
                   </div>
                 </td>

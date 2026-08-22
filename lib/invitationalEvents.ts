@@ -7,8 +7,19 @@ import {
   type ParsedInvitationalImport,
 } from "@/lib/invitationalImport";
 
+/**
+ * Exclut les events "mode régie" (voir InvitationalEvent.linkedTournamentId)
+ * : ce sont des coquilles internes réutilisant le modèle de données
+ * Invitational pour un tournoi start.gg, jamais des events
+ * Invitational/Prestataire réels — ils n'ont rien à faire dans la liste
+ * publique ni dans la liste admin, gérés depuis la page du tournoi qui les
+ * a créés (voir lib/tournamentRegie.ts).
+ */
 export async function listInvitationalEvents(): Promise<InvitationalEvent[]> {
-  return prisma.invitationalEvent.findMany({ orderBy: { eventDate: "desc" } });
+  return prisma.invitationalEvent.findMany({
+    where: { linkedTournamentId: null },
+    orderBy: { eventDate: "desc" },
+  });
 }
 
 export async function getInvitationalEvent(id: string): Promise<InvitationalEvent | null> {
@@ -35,10 +46,17 @@ export async function createInvitationalEvent(input: {
   name: string;
   eventDate: Date;
   parsed: ParsedInvitationalImport;
+  /** Mode régie (voir lib/tournamentRegie.ts) : lie cet event au Tournament start.gg dont il reprend le bracket. */
+  linkedTournamentId?: string;
 }): Promise<InvitationalEvent> {
   return prisma.$transaction(async (tx) => {
     const event = await tx.invitationalEvent.create({
-      data: { name: input.name, eventDate: input.eventDate, format: input.parsed.format },
+      data: {
+        name: input.name,
+        eventDate: input.eventDate,
+        format: input.parsed.format,
+        linkedTournamentId: input.linkedTournamentId,
+      },
     });
     await populateOrMergeEventMatches(tx, event.id, input.parsed);
     return event;

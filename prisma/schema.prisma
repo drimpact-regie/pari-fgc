@@ -61,6 +61,12 @@ model Tournament {
   // start.gg à chaque message (voir lib/matchResults.ts).
   lastResultsCheckAt DateTime?
   createdAt     DateTime @default(now())
+
+  // "Mode régie" (voir InvitationalEvent.linkedTournamentId) : présent une
+  // fois activé par un admin, absent sinon. N'affecte jamais les onglets
+  // Matchs/Joueurs/Top 8/LeaderBet/Le Pari du Parry ni l'économie de paris
+  // existante, tous branchés sur start.gg en direct comme avant.
+  regieEvent InvitationalEvent?
 }
 
 /**
@@ -403,6 +409,22 @@ model InvitationalEvent {
   // dessiner avant que tous les rounds soient joués.
   bracketOverlayLayout Json?
   bracketSize          Int?
+
+  // "Mode régie" d'un tournoi start.gg (voir Tournament) : cet event
+  // Invitational est la "coquille" interne qui porte le bracket/les
+  // compétiteurs importés depuis start.gg, réutilisant tel quel tout
+  // l'outillage admin/overlay déjà construit pour l'Invitational plutôt que
+  // de le dupliquer. Distinct d'un event Invitational/Prestataire normal :
+  // jamais listé publiquement (voir listInvitationalEvents), jamais
+  // accessible sur sa propre page publique (voir /invitational/[eventId]),
+  // et sans économie de pari propre (twitchChannel volontairement laissé
+  // vide — les paris restent sur l'économie/le chat du Tournament lié).
+  linkedTournamentId String?     @unique
+  // onDelete: Cascade plutôt que le SetNull par défaut : sans ça, supprimer
+  // le Tournament laisserait cette coquille orpheline (linkedTournamentId
+  // redevenu null) réapparaître dans les listes Invitational publiques/admin
+  // (voir listInvitationalEvents, qui exclut justement sur ce critère).
+  linkedTournament Tournament? @relation(fields: [linkedTournamentId], references: [id], onDelete: Cascade)
 
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
