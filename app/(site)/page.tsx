@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { listTournaments } from "@/lib/tournaments";
@@ -34,6 +33,23 @@ export default async function Home() {
     );
   }
 
+  // Liste plutôt qu'un redirect direct vers un tournoi précis : un tournoi
+  // peut être supprimé/archivé après qu'un visiteur a mis "/" en favori ou
+  // avec une page mise en cache côté navigateur, ce qui transformait ce
+  // redirect en 404 pointant vers un tournoi qui n'existe plus.
   const tournaments = await listTournaments();
-  redirect(`/t/${tournaments[0].id}/matches`);
+  const sorted = [...tournaments].reverse(); // plus récent d'abord
+
+  return (
+    <div className="max-w-2xl mx-auto flex flex-col gap-4">
+      <h1 className="text-xl font-semibold">Tournois</h1>
+      <div className="flex flex-col gap-3">
+        {sorted.map((t) => (
+          <Link key={t.id} href={`/t/${t.id}/matches`} className="card p-4 hover:opacity-90">
+            <span className="font-semibold">{t.name}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
 }
