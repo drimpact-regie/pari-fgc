@@ -32,6 +32,9 @@ export default async function Nav() {
             <Link href="/leaderboard" className="hover:opacity-80">
               LeaderBet
             </Link>
+            <Link href="/beaters" className="hover:opacity-80">
+              Les Beaters
+            </Link>
             {session.user.isAdmin && <AdminMenu />}
             {ownedInvitationalCount > 0 && (
               <Link href="/partner/invitational" className="hover:opacity-80">
