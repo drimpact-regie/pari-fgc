@@ -25,6 +25,11 @@ export class StartggApiError extends Error {
   }
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Nombre de tentatives supplémentaires en cas de 429 (limite de débit start.gg). */
+const RATE_LIMIT_MAX_RETRIES = 2;
+
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
   query: string,
@@ -37,42 +42,58 @@ async function callStartGG<T>(
     );
   }
 
-  let res: Response;
-  try {
-    res = await fetch(STARTGG_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-      // Cache côté serveur Next.js pour ne pas marteler l'API start.gg à
-      // chaque chargement de page par un des ~30 parieurs.
-      next: { revalidate: STARTGG_CACHE_SECONDS },
-    });
-  } catch (err) {
-    throw new StartggApiError(
-      "Impossible de joindre l'API start.gg (réseau).",
-      err,
-    );
-  }
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(STARTGG_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, variables }),
+        // Cache côté serveur Next.js pour ne pas marteler l'API start.gg à
+        // chaque chargement de page par un des ~30 parieurs.
+        next: { revalidate: STARTGG_CACHE_SECONDS },
+      });
+    } catch (err) {
+      throw new StartggApiError(
+        "Impossible de joindre l'API start.gg (réseau).",
+        err,
+      );
+    }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new StartggApiError(
-      `L'API start.gg a répondu ${res.status} ${res.statusText}.`,
-      text,
-    );
-  }
+    if (res.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+      // start.gg limite le débit par token, pas par requête individuelle :
+      // un pic de charge (plusieurs parieurs en même temps) peut déclencher
+      // un 429 ponctuel qui se résorbe seul en quelques centaines de ms.
+      // On respecte l'en-tête Retry-After s'il est fourni, sinon un backoff
+      // court avant de réessayer plutôt que de faire échouer immédiatement
+      // une action utilisateur (ex. placer un pari) pour un blocage transitoire.
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+      const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 400 * 2 ** attempt;
+      await sleep(backoffMs);
+      continue;
+    }
 
-  const json = (await res.json()) as { data?: T; errors?: unknown };
-  if (json.errors) {
-    throw new StartggApiError("Erreur GraphQL renvoyée par start.gg.", json.errors);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new StartggApiError(
+        `L'API start.gg a répondu ${res.status} ${res.statusText}.`,
+        text,
+      );
+    }
+
+    const json = (await res.json()) as { data?: T; errors?: unknown };
+    if (json.errors) {
+      throw new StartggApiError("Erreur GraphQL renvoyée par start.gg.", json.errors);
+    }
+    if (!json.data) {
+      throw new StartggApiError("Réponse start.gg vide.");
+    }
+    return json.data;
   }
-  if (!json.data) {
-    throw new StartggApiError("Réponse start.gg vide.");
-  }
-  return json.data;
 }
 
 // --- Types -----------------------------------------------------------------
@@ -288,22 +309,6 @@ const EVENT_PHASES_QUERY = /* GraphQL */ `
       phases {
         id
         name
-      }
-    }
-  }
-`;
-
-/** Meilleurs seeds (têtes de série) d'une poule/phaseGroup start.gg. */
-const PHASE_GROUP_SEEDS_QUERY = /* GraphQL */ `
-  query PhaseGroupSeeds($phaseGroupId: ID!, $perPage: Int!) {
-    phaseGroup(id: $phaseGroupId) {
-      seeds(query: { perPage: $perPage, page: 1 }) {
-        nodes {
-          seedNum
-          entrant {
-            name
-          }
-        }
       }
     }
   }
@@ -719,23 +724,65 @@ export async function getSetResult(setId: string): Promise<StartggSet | null> {
   return data.set ? normalizeSet(data.set) : null;
 }
 
-/** Meilleurs seeds (têtes de série) d'une poule, triés du meilleur au moins bon. */
-export async function getPhaseGroupTopSeeds(
-  phaseGroupId: string,
+/**
+ * Meilleurs seeds (têtes de série) de plusieurs poules en une seule requête
+ * GraphQL (via alias, un champ `phaseGroup` par poule) plutôt qu'une requête
+ * par poule. Une page "Round 1" avec des dizaines de poules déclenchait
+ * auparavant autant de requêtes start.gg en parallèle qu'il y a de poules à
+ * chaque chargement de page — assez pour déclencher un 429 (limite de débit
+ * par token, pas par requête) dès que plusieurs parieurs chargeaient la page
+ * en même temps. Ne fait rien si `phaseGroupIds` est vide.
+ */
+export async function getPhaseGroupsTopSeeds(
+  phaseGroupIds: string[],
   limit = 4,
-): Promise<StartggSeed[]> {
-  const data = await callStartGG<{
-    phaseGroup: {
-      seeds: { nodes: { seedNum: number; entrant: { name: string } | null }[] } | null;
-    } | null;
-  }>(PHASE_GROUP_SEEDS_QUERY, { phaseGroupId, perPage: Math.max(limit, 8) });
+): Promise<Map<string, StartggSeed[]>> {
+  if (phaseGroupIds.length === 0) return new Map();
 
-  const nodes = data.phaseGroup?.seeds?.nodes ?? [];
-  return nodes
-    .filter((n): n is { seedNum: number; entrant: { name: string } } => n.entrant !== null)
-    .sort((a, b) => a.seedNum - b.seedNum)
-    .slice(0, limit)
-    .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name }));
+  const query = `
+    query BatchPhaseGroupSeeds(${phaseGroupIds.map((_, i) => `$id${i}: ID!`).join(", ")}, $perPage: Int!) {
+      ${phaseGroupIds
+        .map(
+          (_, i) => `
+      g${i}: phaseGroup(id: $id${i}) {
+        seeds(query: { perPage: $perPage, page: 1 }) {
+          nodes {
+            seedNum
+            entrant {
+              name
+            }
+          }
+        }
+      }`,
+        )
+        .join("\n")}
+    }
+  `;
+  const variables: Record<string, unknown> = { perPage: Math.max(limit, 8) };
+  phaseGroupIds.forEach((id, i) => {
+    variables[`id${i}`] = id;
+  });
+
+  const data = await callStartGG<
+    Record<
+      string,
+      { seeds: { nodes: { seedNum: number; entrant: { name: string } | null }[] } | null } | null
+    >
+  >(query, variables);
+
+  const result = new Map<string, StartggSeed[]>();
+  phaseGroupIds.forEach((id, i) => {
+    const nodes = data[`g${i}`]?.seeds?.nodes ?? [];
+    result.set(
+      id,
+      nodes
+        .filter((n): n is { seedNum: number; entrant: { name: string } } => n.entrant !== null)
+        .sort((a, b) => a.seedNum - b.seedNum)
+        .slice(0, limit)
+        .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name })),
+    );
+  });
+  return result;
 }
 
 /**
