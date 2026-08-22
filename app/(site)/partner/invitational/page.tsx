@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { listInvitationalEventsForOwner } from "@/lib/invitationalEvents";
 import { INVITATIONAL_FORMAT_LABELS } from "@/lib/invitationalFormats";
+import { bridgeHref } from "@/lib/domainRouting";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,7 @@ export default async function PartnerInvitationalListPage() {
   if (!session?.user?.id) {
     redirect("/login?from=/partner/invitational");
   }
+  const host = (await headers()).get("host") ?? "";
 
   const events = await listInvitationalEventsForOwner(session.user.id);
 
@@ -34,7 +37,7 @@ export default async function PartnerInvitationalListPage() {
       {events.length === 0 ? (
         <p className="text-sm" style={{ color: "var(--muted)" }}>
           Aucun event confirmé pour l&apos;instant.{" "}
-          <Link href="/invitational/request" className="underline" style={{ color: "var(--accent)" }}>
+          <Link href={bridgeHref("/invitational/request", host)} className="underline" style={{ color: "var(--accent)" }}>
             Faire une demande
           </Link>
           .

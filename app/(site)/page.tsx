@@ -1,11 +1,24 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { listTournaments } from "@/lib/tournaments";
 import { getEventInfo } from "@/lib/startgg";
+import { crossDomainHref, domainOfHost } from "@/lib/domainRouting";
 
+/**
+ * "/" est servie IDENTIQUEMENT quel que soit le domaine côté routage
+ * (jamais de redirection — voir classifyPath), mais son RENDU diffère
+ * volontairement une fois connecté : liste des tournois sur
+ * impactobet.fr (parieur), accueil régie sur impactobot.fr (streamer /
+ * prestataire), reprenant l'entrée "Streamer" de l'ancien accueil unique.
+ * En dev/preview (un seul hostname), domainOfHost() renvoie `null` et
+ * l'accueil parieur reste l'affichage par défaut.
+ */
 export default async function Home() {
   const session = await auth();
+  const host = (await headers()).get("host") ?? "";
+
   if (!session?.user) {
     return (
       <div className="max-w-md mx-auto card p-6 flex flex-col gap-4">
@@ -28,6 +41,38 @@ export default async function Home() {
           Déjà inscrit ?{" "}
           <Link href="/login" className="underline">
             Se connecter
+          </Link>
+        </p>
+      </div>
+    );
+  }
+
+  if (domainOfHost(host) === "streamer") {
+    return (
+      <div className="max-w-md mx-auto card p-6 flex flex-col gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">Espace streamer &amp; régie</h1>
+          <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+            Autorisation du bot Twitch, gestion Invitational/Prestataire et outils
+            d&apos;administration des tournois.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <Link href="/streamer" className="btn text-center">
+            Installer le bot sur ma chaîne
+          </Link>
+          <Link href="/partner/invitational" className="btn text-center">
+            Mes events Invitational
+          </Link>
+          {session.user.isAdmin && (
+            <Link href="/admin/tournaments" className="btn btn-primary text-center">
+              Administration
+            </Link>
+          )}
+        </div>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          <Link href={crossDomainHref("/", "parieur", host)} className="underline">
+            Voir le site parieur
           </Link>
         </p>
       </div>

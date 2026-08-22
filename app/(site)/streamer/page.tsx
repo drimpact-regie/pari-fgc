@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { prisma } from "@/lib/prisma";
+import { bridgeHref } from "@/lib/domainRouting";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export default async function StreamerPage({
 }) {
   const { authorized, authError } = await searchParams;
   const botToken = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
+  const host = (await headers()).get("host") ?? "";
 
   return (
     <div className="max-w-lg mx-auto card p-6 flex flex-col gap-4">
@@ -93,7 +96,7 @@ export default async function StreamerPage({
 
       <p className="text-xs" style={{ color: "var(--muted)" }}>
         Tu organises un showmatch/exhibition sans présence start.gg ?{" "}
-        <Link href="/invitational/request" className="underline">
+        <Link href={bridgeHref("/invitational/request", host)} className="underline">
           Demande ton event Invitational/Prestataire
         </Link>
         .

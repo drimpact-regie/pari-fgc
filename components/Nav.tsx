@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { bridgeHref } from "@/lib/domainRouting";
 import LogoutButton from "@/components/LogoutButton";
 import AdminMenu from "@/components/AdminMenu";
 
 export default async function Nav() {
   const session = await auth();
+  const host = (await headers()).get("host") ?? "";
   const currentUser = session?.user
     ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
     : null;
@@ -29,15 +32,15 @@ export default async function Nav() {
 
         {session?.user ? (
           <nav className="flex items-center gap-4 text-sm">
-            <Link href="/leaderboard" className="hover:opacity-80">
+            <Link href={bridgeHref("/leaderboard", host)} className="hover:opacity-80">
               LeaderBet
             </Link>
-            <Link href="/beaters" className="hover:opacity-80">
+            <Link href={bridgeHref("/beaters", host)} className="hover:opacity-80">
               Les Beaters
             </Link>
-            {session.user.isAdmin && <AdminMenu />}
+            {session.user.isAdmin && <AdminMenu host={host} />}
             {ownedInvitationalCount > 0 && (
-              <Link href="/partner/invitational" className="hover:opacity-80">
+              <Link href={bridgeHref("/partner/invitational", host)} className="hover:opacity-80">
                 Mes events
               </Link>
             )}
@@ -46,7 +49,7 @@ export default async function Nav() {
                 {currentUser.exBalance} Ex
               </span>
             )}
-            <Link href="/account" className="hover:opacity-80" style={{ color: "var(--muted)" }}>
+            <Link href={bridgeHref("/account", host)} className="hover:opacity-80" style={{ color: "var(--muted)" }}>
               {session.user.name}
             </Link>
             <LogoutButton />

@@ -97,6 +97,21 @@ model ProcessedWebhookMessage {
   createdAt DateTime @default(now())
 }
 
+/**
+ * Pont SSO entre impactobet.fr (parieur) et impactobot.fr (streamer/régie) —
+ * voir lib/ssoBridge.ts. Un jeton signé (JWT, courte durée de vie) référence
+ * une ligne ici par `jti` : la ligne est supprimée dès la consommation, donc
+ * son ABSENCE (et pas seulement l'expiration du JWT) est ce qui garantit un
+ * usage strictement unique — un jeton rejoué après consommation échoue même
+ * si sa signature et son expiration sont encore valides.
+ */
+model SsoBridgeToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+}
+
 model User {
   id           String   @id @default(cuid())
   username     String   @unique

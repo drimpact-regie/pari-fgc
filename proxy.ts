@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
+import {
+  PARIEUR_APEX_HOST,
+  PARIEUR_CANONICAL_HOST,
+  STREAMER_APEX_HOST,
+  STREAMER_CANONICAL_HOST,
+  classifyPath,
+  domainOfHost,
+  isDevOrPreviewHost,
+} from "@/lib/domainRouting";
 
-const APEX_HOST = "impactobet.fr";
-const CANONICAL_HOST = "www.impactobet.fr";
+const APEX_TO_CANONICAL: Record<string, string> = {
+  [PARIEUR_APEX_HOST]: PARIEUR_CANONICAL_HOST,
+  [STREAMER_APEX_HOST]: STREAMER_CANONICAL_HOST,
+};
 
 // Publiques quel que soit l'état de connexion : ni redirigées vers /login,
 // ni redirigées vers "/" si déjà connecté (page.tsx gère lui-même la
@@ -16,11 +27,12 @@ const PUBLIC_PATHS = ["/login", "/register"];
 export const proxy = auth((req) => {
   // Les flux OAuth Twitch (bot, liaison de compte, connexion) exigent un
   // redirect_uri identique au caractère près à celui enregistré côté Twitch
-  // (www.impactobet.fr) — ce redirect_uri est dérivé de l'origine de la
+  // (le domaine "www") — ce redirect_uri est dérivé de l'origine de la
   // requête en cours, donc visiter le site via le domaine nu (sans "www")
   // produit un redirect_uri différent et fait échouer tout le flux avec
   // "The provided redirect_uri does not match". On force donc "www" ici,
-  // avant même la logique d'authentification ci-dessous.
+  // avant même la logique d'authentification ci-dessous — pour les deux
+  // domaines (impactobet.fr ET impactobot.fr).
   //
   // req.nextUrl.hostname reflète l'adresse d'écoute du serveur, pas
   // forcément le domaine réellement visité par le navigateur (confirmé en
@@ -28,16 +40,37 @@ export const proxy = auth((req) => {
   // donc directement sur l'en-tête Host (ou X-Forwarded-Host derrière un
   // proxy comme celui de Vercel), la seule source fiable du domaine visité.
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  if (host === APEX_HOST) {
+  const canonicalForApex = APEX_TO_CANONICAL[host];
+  if (canonicalForApex) {
     const url = req.nextUrl.clone();
     url.protocol = "https";
-    url.hostname = CANONICAL_HOST;
+    url.hostname = canonicalForApex;
     url.port = "";
     return NextResponse.redirect(url, 308);
   }
 
-  const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
+
+  // Bascule entre impactobet.fr (parieur) et impactobot.fr (streamer /
+  // prestataire / régie) : une route "parieur" demandée sur le domaine
+  // streamer (et réciproquement) est redirigée vers son domaine propre.
+  // Bypass complet en dev/preview (un seul hostname disponible, tout doit
+  // rester joignable comme aujourd'hui) ; jamais appliqué à "/" (rendu
+  // différent par domaine, jamais de redirection) ni aux routes /api/*
+  // ou /overlay/* (voir lib/domainRouting.ts).
+  if (!isDevOrPreviewHost(host)) {
+    const currentDomain = domainOfHost(host);
+    const targetDomain = classifyPath(pathname);
+    if (currentDomain && targetDomain && targetDomain !== currentDomain) {
+      const url = req.nextUrl.clone();
+      url.protocol = "https";
+      url.hostname = targetDomain === "parieur" ? PARIEUR_CANONICAL_HOST : STREAMER_CANONICAL_HOST;
+      url.port = "";
+      return NextResponse.redirect(url, 302);
+    }
+  }
+
+  const isLoggedIn = !!req.auth;
 
   const isPublic =
     PUBLIC_ALWAYS_PATHS.includes(pathname) ||

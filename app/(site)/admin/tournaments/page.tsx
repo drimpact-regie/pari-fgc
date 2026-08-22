@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { listTournaments } from "@/lib/tournaments";
+import { bridgeHref } from "@/lib/domainRouting";
 import AddTournamentForm from "@/components/AddTournamentForm";
 import TwitchChannelEditor from "@/components/TwitchChannelEditor";
 import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
@@ -28,6 +30,7 @@ export default async function AdminTournamentsPage({
   if (!session?.user?.isAdmin) {
     redirect("/");
   }
+  const host = (await headers()).get("host") ?? "";
 
   const { twitchConnected, twitchError } = await searchParams;
   const tournaments = await listTournaments();
@@ -137,7 +140,7 @@ export default async function AdminTournamentsPage({
                 </td>
                 <td className="px-4 py-2 text-right">
                   <div className="flex items-center justify-end gap-3">
-                    <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>
+                    <Link href={bridgeHref(`/t/${t.id}/matches`, host)} className="underline" style={{ color: "var(--accent)" }}>
                       Voir
                     </Link>
                     <Link href={`/admin/tournaments/${t.id}/regie`} className="underline" style={{ color: "var(--accent)" }}>
