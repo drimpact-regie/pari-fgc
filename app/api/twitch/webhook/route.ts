@@ -33,9 +33,12 @@ import {
   roundNumberFromText,
 } from "@/lib/chatBets";
 import {
+  computeTournamentLeaderboardRanks,
   detectNewLateBracketResults,
+  formatLeaderboardClimbMessage,
   formatMatchResultMessage,
   resolveAllPendingBets,
+  type WonBetPayout,
 } from "@/lib/matchResults";
 
 interface ChatMessageEvent {
@@ -678,16 +681,60 @@ async function checkAndAnnounceResults(
     data: { lastResultsCheckAt: now },
   });
 
-  await resolveAllPendingBets().catch(() => undefined);
+  // Instantané du classement LeaderBet de CE tournoi avant résolution, pour
+  // détecter une progression juste après (voir announceLeaderboardClimbs) —
+  // resolveAllPendingBets() résout les paris de TOUS les tournois en une
+  // seule fois, donc pris à part plutôt qu'à l'intérieur.
+  const ranksBefore = await computeTournamentLeaderboardRanks(tournament.eventSlug);
+  const resolution = await resolveAllPendingBets().catch(() => null);
 
   const [completedSets, topSeedEntrantIds] = await Promise.all([
     getCompletedSets(tournament.eventSlug),
     getEventTopSeedEntrantIds(tournament.eventSlug).catch(() => new Set<string>()),
   ]);
   const results = await detectNewLateBracketResults(tournament, completedSets, topSeedEntrantIds);
-  if (results.length === 0) return;
+  if (results.length > 0) {
+    await reply(broadcasterId, formatMatchResultMessage(results));
+  }
 
-  await reply(broadcasterId, formatMatchResultMessage(results));
+  if (resolution) {
+    await announceLeaderboardClimbs(tournament, ranksBefore, resolution.wonPayouts, broadcasterId);
+  }
+}
+
+/**
+ * Annonce dans le chat les parieurs de CE tournoi dont le rang LeaderBet
+ * s'améliore suite à cette résolution — uniquement une vraie progression
+ * (rang connu avant ET meilleur après), jamais la simple apparition d'un
+ * nouveau parieur sans rang de référence (sinon un tout premier pari gagné
+ * déclencherait toujours l'alerte).
+ */
+async function announceLeaderboardClimbs(
+  tournament: { eventSlug: string },
+  ranksBefore: Map<string, { rank: number; points: number }>,
+  wonPayouts: WonBetPayout[],
+  broadcasterId: string,
+) {
+  const relevant = wonPayouts.filter((w) => w.eventSlug === tournament.eventSlug);
+  if (relevant.length === 0) return;
+
+  const payoutByUser = new Map<string, number>();
+  for (const w of relevant) {
+    payoutByUser.set(w.userId, (payoutByUser.get(w.userId) ?? 0) + w.payout);
+  }
+
+  const ranksAfter = await computeTournamentLeaderboardRanks(tournament.eventSlug);
+
+  for (const [userId, payout] of payoutByUser) {
+    const before = ranksBefore.get(userId);
+    const after = ranksAfter.get(userId);
+    if (!before || !after || after.rank >= before.rank) continue;
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (!user) continue;
+
+    await reply(broadcasterId, formatLeaderboardClimbMessage(user.username, payout, after));
+  }
 }
 
 export async function POST(request: Request) {

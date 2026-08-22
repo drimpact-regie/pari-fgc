@@ -12,6 +12,12 @@ import {
   type StartggSet,
 } from "@/lib/startgg";
 
+export interface WonBetPayout {
+  userId: string;
+  eventSlug: string;
+  payout: number;
+}
+
 /**
  * Résout tous les paris classiques PENDING d'un set terminé (WON/LOST +
  * gain en Ex crédité au solde du parieur, dans la même transaction que la
@@ -23,12 +29,23 @@ import {
  * Paris légués d'avant l'introduction de la mise/cote (stake/odds encore
  * nuls) : marqués WON/LOST sans paiement, faute de mise réellement
  * collectée à rembourser.
+ *
+ * `wonPayouts` (paris gagnés avec gain > 0) sert à détecter une progression
+ * au classement LeaderBet du tournoi juste après (voir
+ * checkAndAnnounceResults côté webhook) — `resolvedCount` reste le total
+ * gagnés+perdus, pour ne pas changer le sens des compteurs déjà affichés à
+ * l'admin (voir resolveAllPendingBets).
  */
-export async function resolveSetBets(set: StartggSet): Promise<number> {
-  if (set.state !== SET_STATE.COMPLETED || set.winnerId == null) return 0;
+export async function resolveSetBets(
+  set: StartggSet,
+): Promise<{ resolvedCount: number; wonPayouts: WonBetPayout[] }> {
+  if (set.state !== SET_STATE.COMPLETED || set.winnerId == null) {
+    return { resolvedCount: 0, wonPayouts: [] };
+  }
 
   const winnerId = String(set.winnerId);
   const bets = await prisma.bet.findMany({ where: { setId: set.id, status: "PENDING" } });
+  const wonPayouts: WonBetPayout[] = [];
 
   for (const bet of bets) {
     const won = bet.predictedEntrantId === winnerId;
@@ -51,9 +68,11 @@ export async function resolveSetBets(set: StartggSet): Promise<number> {
           ]
         : []),
     ]);
+
+    if (payout > 0) wonPayouts.push({ userId: bet.userId, eventSlug: bet.eventSlug, payout });
   }
 
-  return bets.length;
+  return { resolvedCount: bets.length, wonPayouts };
 }
 
 /**
@@ -92,6 +111,8 @@ export interface ResolveAllPendingBetsResult {
   resolvedBets: number;
   cancelledBets: number;
   errors: string[];
+  /** Tous jeux/tournois confondus (résolution globale) — voir WonBetPayout. */
+  wonPayouts: WonBetPayout[];
 }
 
 /**
@@ -128,6 +149,7 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
   let resolvedBets = 0;
   let cancelledBets = 0;
   const errors: string[] = [];
+  const wonPayouts: WonBetPayout[] = [];
 
   const previewSetIds = new Set(
     pendingBets.filter((b) => isPreviewSetId(b.setId)).map((b) => b.setId),
@@ -180,15 +202,16 @@ export async function resolveAllPendingBets(): Promise<ResolveAllPendingBetsResu
 
       if (!set) continue; // pas encore terminé côté start.gg
 
-      const resolvedCount = await resolveSetBets(set);
+      const { resolvedCount, wonPayouts: setWonPayouts } = await resolveSetBets(set);
       if (resolvedCount > 0) {
         resolvedSets += 1;
         resolvedBets += resolvedCount;
+        wonPayouts.push(...setWonPayouts);
       }
     }
   }
 
-  return { resolvedSets, resolvedBets, cancelledBets, errors };
+  return { resolvedSets, resolvedBets, cancelledBets, errors, wonPayouts };
 }
 
 export interface CompletedMatchAnnouncement {
@@ -272,4 +295,52 @@ export function formatMatchResultMessage(results: CompletedMatchAnnouncement[]):
       : `${r.winnerName} a gagné contre ${r.loserName}`,
   );
   return results.length === 1 ? `${lines[0]} !` : `Résultats : ${lines.join(" | ")} !`;
+}
+
+export interface TournamentLeaderboardEntry {
+  rank: number;
+  points: number;
+}
+
+/**
+ * Classement LeaderBet d'un tournoi (même tri que
+ * app/(site)/t/[tournamentId]/leaderboard/page.tsx : points = somme des
+ * gains des paris classiques du parieur sur CE tournoi, puis victoires en
+ * cas d'égalité) — extrait ici pour être réutilisable côté détection de
+ * progression au classement (voir checkAndAnnounceResults, webhook Twitch),
+ * qui a besoin d'un instantané avant/après résolution. N'inclut que les
+ * parieurs ayant au moins un pari (gagné/perdu/en attente) sur ce tournoi,
+ * comme la page.
+ */
+export async function computeTournamentLeaderboardRanks(
+  eventSlug: string,
+): Promise<Map<string, TournamentLeaderboardEntry>> {
+  const users = await prisma.user.findMany({ include: { bets: { where: { eventSlug } } } });
+
+  const rows = users
+    .map((user) => {
+      const won = user.bets.filter((b) => b.status === "WON").length;
+      const lost = user.bets.filter((b) => b.status === "LOST").length;
+      const pending = user.bets.filter((b) => b.status === "PENDING").length;
+      const points = user.bets.reduce((sum, b) => sum + b.pointsAwarded, 0);
+      return { userId: user.id, points, won, active: won + lost + pending > 0 };
+    })
+    .filter((row) => row.active)
+    .sort((a, b) => b.points - a.points || b.won - a.won);
+
+  const ranks = new Map<string, TournamentLeaderboardEntry>();
+  rows.forEach((row, i) => ranks.set(row.userId, { rank: i + 1, points: row.points }));
+  return ranks;
+}
+
+const LEADERBOARD_MEDAL_BY_RANK: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
+
+/** Message de progression au classement LeaderBet d'un tournoi (voir checkAndAnnounceResults). */
+export function formatLeaderboardClimbMessage(
+  username: string,
+  payout: number,
+  entry: TournamentLeaderboardEntry,
+): string {
+  const medal = LEADERBOARD_MEDAL_BY_RANK[entry.rank];
+  return `@${username} tu as gagné ${payout} Ex${medal ? ` ${medal}` : ""} ${username} ${entry.points}`;
 }
