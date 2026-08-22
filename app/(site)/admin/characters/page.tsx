@@ -5,6 +5,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import CharacterImageRow from "@/components/CharacterImageRow";
 import AddCharacterForm from "@/components/AddCharacterForm";
+import ImportTekken8Button from "@/components/ImportTekken8Button";
+import { TEKKEN8_GAME_NAME } from "@/lib/tekken8Roster";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,8 @@ export default async function AdminCharactersPage({
           affiché tant qu&apos;aucune image valide n&apos;est renseignée.
         </p>
       </div>
+
+      {!games.includes(TEKKEN8_GAME_NAME) && <ImportTekken8Button />}
 
       {games.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
