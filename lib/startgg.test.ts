@@ -9,6 +9,7 @@ import {
   isPreviewSetId,
   isSetOpenForBetting,
   SET_STATE,
+  tournamentSlugFromEventSlug,
   type StartggEntrant,
   type StartggSet,
 } from "./startgg";
@@ -239,5 +240,17 @@ describe("isNotableMatch", () => {
       ],
     });
     expect(isNotableMatch(set, new Set(["1"]))).toBe(true);
+  });
+});
+
+describe("tournamentSlugFromEventSlug", () => {
+  it("strips the /event/... suffix", () => {
+    expect(tournamentSlugFromEventSlug("tournament/ceo-2026/event/marvel-tokon-fighting-souls")).toBe(
+      "tournament/ceo-2026",
+    );
+  });
+
+  it("returns the input unchanged when there is no /event/ segment", () => {
+    expect(tournamentSlugFromEventSlug("tournament/ceo-2026")).toBe("tournament/ceo-2026");
   });
 });

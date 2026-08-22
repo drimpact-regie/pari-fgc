@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import RegieActivationPanel from "@/components/RegieActivationPanel";
+import RegieStreamQueuePanel from "@/components/RegieStreamQueuePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,14 @@ export default async function TournamentRegiePage({
       </div>
 
       <RegieActivationPanel tournamentId={tournament.id} active={Boolean(tournament.regieEvent)} />
+
+      {tournament.regieEvent && (
+        <RegieStreamQueuePanel
+          eventSlug={tournament.eventSlug}
+          regieEventId={tournament.regieEvent.id}
+          activeOverlayMatchId={tournament.regieEvent.activeOverlayMatchId}
+        />
+      )}
 
       {tournament.regieEvent && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

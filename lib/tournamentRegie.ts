@@ -81,6 +81,7 @@ function setToParsedMatch(set: StartggSet, orderIndex: number): ParsedMatch {
     ftGames: set.totalGames,
     roundsPerGame: null,
     verifManette: null,
+    startggSetId: set.id,
   };
 }
 

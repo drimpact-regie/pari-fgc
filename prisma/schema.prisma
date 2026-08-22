@@ -612,6 +612,13 @@ model InvitationalMatch {
   ftGames       Int?
   roundsPerGame Int?
   verifManette  Boolean?
+  // Id du set start.gg d'origine — uniquement rempli pour un match importé
+  // par le mode régie (voir lib/tournamentRegie.ts), jamais pour un import
+  // Excel Invitational classique. Sert à faire correspondre une entrée de
+  // la file d'attente stream (streamQueue, lib/startgg.ts) à SON match
+  // InvitationalMatch, pour le bouton "afficher sur l'overlay" — voir
+  // /admin/tournaments/[tournamentId]/regie.
+  startggSetId  String?
   createdAt     DateTime @default(now())
   resolvedAt    DateTime?
 

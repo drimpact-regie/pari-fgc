@@ -237,6 +237,7 @@ async function populateOrMergeEventMatches(
           ftGames: match.ftGames,
           roundsPerGame: match.roundsPerGame,
           verifManette: match.verifManette,
+          startggSetId: match.startggSetId,
         },
       });
       summary.updated++;
@@ -257,6 +258,7 @@ async function populateOrMergeEventMatches(
           ftGames: match.ftGames,
           roundsPerGame: match.roundsPerGame,
           verifManette: match.verifManette,
+          startggSetId: match.startggSetId,
         },
       });
       summary.created++;

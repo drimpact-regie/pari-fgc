@@ -535,6 +535,89 @@ export async function getEventPhases(
   }));
 }
 
+/** "tournament/x/event/y" -> "tournament/x" : la file d'attente stream (streamQueue) se demande au niveau du TOURNOI, pas de l'event. */
+export function tournamentSlugFromEventSlug(eventSlug: string): string {
+  const idx = eventSlug.indexOf("/event/");
+  return idx === -1 ? eventSlug : eventSlug.slice(0, idx);
+}
+
+export interface StreamQueueEntry {
+  streamId: string;
+  streamName: string;
+  sets: {
+    id: string;
+    fullRoundText: string;
+    slots: { entrantName: string | null }[];
+  }[];
+}
+
+const STREAM_QUEUE_QUERY = /* GraphQL */ `
+  query StreamQueue($tournamentSlug: String!) {
+    tournament(slug: $tournamentSlug) {
+      streamQueue {
+        stream {
+          id
+          streamName
+        }
+        sets {
+          id
+          fullRoundText
+          slots {
+            entrant {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * File d'attente stream configurée côté start.gg (Streams > Stream Queue) :
+ * quels sets sont assignés à quel stream, dans l'ordre où le TO les a
+ * placés — sert à préparer/activer le prochain match sur l'overlay régie
+ * sans avoir à chercher le bon set dans tout le bracket. Champ non
+ * documenté publiquement (repris de l'usage observé du site start.gg lui-
+ * même) : non vérifié contre l'API réelle depuis cet environnement (pas
+ * d'accès réseau sortant) — à confirmer à la première utilisation en
+ * production. Les appelants doivent traiter un échec comme "aucune info
+ * disponible" plutôt que comme une erreur bloquante (voir son usage dans
+ * /admin/tournaments/[tournamentId]/regie).
+ */
+export async function getStreamQueue(tournamentSlug: string): Promise<StreamQueueEntry[]> {
+  const data = await callStartGG<{
+    tournament: {
+      streamQueue:
+        | {
+            stream: { id: string | number; streamName: string } | null;
+            sets:
+              | {
+                  id: string | number;
+                  fullRoundText: string;
+                  slots: { entrant: { name: string } | null }[] | null;
+                }[]
+              | null;
+          }[]
+        | null;
+    } | null;
+  }>(STREAM_QUEUE_QUERY, { tournamentSlug });
+
+  return (data.tournament?.streamQueue ?? [])
+    .filter((entry): entry is typeof entry & { stream: { id: string | number; streamName: string } } =>
+      Boolean(entry.stream),
+    )
+    .map((entry) => ({
+      streamId: String(entry.stream.id),
+      streamName: entry.stream.streamName,
+      sets: (entry.sets ?? []).map((s) => ({
+        id: String(s.id),
+        fullRoundText: s.fullRoundText,
+        slots: (s.slots ?? []).map((slot) => ({ entrantName: slot.entrant?.name ?? null })),
+      })),
+    }));
+}
+
 /** Forme brute d'un entrant telle que renvoyée par l'API (avant normalisation). */
 interface RawStartggEntrant {
   id: string | number;
