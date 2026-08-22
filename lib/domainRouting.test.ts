@@ -28,6 +28,26 @@ describe("classifyPath", () => {
     expect(classifyPath("/partner/invitational")).toBe("streamer");
   });
 
+  it("locks browser-navigated Twitch OAuth entry points to their owning domain despite the /api/ exemption", () => {
+    // Ces routes calculent leur redirect_uri Twitch depuis l'origine de la
+    // requête (voir app/api/twitch/link/*, app/api/streamer/authorize/*,
+    // app/api/admin/twitch/*) — les atteindre depuis le mauvais domaine
+    // (favori, URL tapée à la main) produit un redirect_uri jamais
+    // enregistré côté Twitch ("The provided redirect_uri does not match").
+    expect(classifyPath("/api/twitch/link/connect")).toBe("parieur");
+    expect(classifyPath("/api/twitch/link/callback")).toBe("parieur");
+    expect(classifyPath("/api/streamer/authorize/connect")).toBe("streamer");
+    expect(classifyPath("/api/streamer/authorize/callback")).toBe("streamer");
+    expect(classifyPath("/api/admin/twitch/connect")).toBe("streamer");
+    expect(classifyPath("/api/admin/twitch/callback")).toBe("streamer");
+  });
+
+  it("still leaves other /api/ routes (webhooks, shared NextAuth sign-in) unclassified", () => {
+    expect(classifyPath("/api/bets")).toBeNull();
+    expect(classifyPath("/api/auth/callback/twitch")).toBeNull();
+    expect(classifyPath("/api/twitch/webhook")).toBeNull();
+  });
+
   it("classifies everything else as parieur", () => {
     expect(classifyPath("/leaderboard")).toBe("parieur");
     expect(classifyPath("/beaters")).toBe("parieur");

@@ -25,6 +25,23 @@ export const STREAMER_CANONICAL_HOST = "www.impactobot.fr";
 const ALWAYS_PREFIXES = ["/api/", "/overlay/", "/login", "/register"];
 const ALWAYS_EXACT = ["/api", "/login", "/register"];
 
+// Sous-ensemble de /api/ verrouillé à UN domaine malgré ALWAYS_PREFIXES
+// ci-dessus : les flux OAuth Twitch qui démarrent et terminent le
+// redirect_uri sur `url.origin` (voir ces routes) doivent recevoir la MÊME
+// origine à l'aller (connect) et au retour (callback), qui doit elle-même
+// être celle enregistrée côté Twitch Developer Console — sinon "The
+// provided redirect_uri does not match". Contrairement aux webhooks/overlays
+// couverts par ALWAYS_PREFIXES (appelés par un système externe qui ne
+// connaît qu'une seule URL déjà configurée), ces routes sont *navigées par
+// le navigateur* depuis une page précise d'un seul domaine (lien relatif) —
+// un favori, une URL tapée à la main, ou une suggestion d'autocomplétion
+// depuis l'autre domaine les atteint sinon avec la mauvaise origine.
+const PARIEUR_ONLY_PREFIXES = ["/api/twitch/link/"]; // lien depuis /account (parieur)
+const STREAMER_ONLY_PREFIXES = [
+  "/api/streamer/authorize/", // lien depuis /streamer (streamer)
+  "/api/admin/twitch/", // lien depuis /admin/tournaments (streamer)
+];
+
 // Routes "streamer" — cf. Partie 1 du prompt : self-service Twitch bot,
 // portail Invitational (admin + partenaire), tout /admin/*, tout /overlay/*
 // (déjà couvert par ALWAYS_PREFIXES ci-dessus, cité ici pour mémoire).
@@ -39,6 +56,10 @@ const STREAMER_EXACT = ["/streamer", "/admin"];
  */
 export function classifyPath(pathname: string): SiteDomain | null {
   if (pathname === "/") return null;
+
+  if (PARIEUR_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return "parieur";
+  if (STREAMER_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return "streamer";
+
   if (ALWAYS_EXACT.includes(pathname)) return null;
   if (ALWAYS_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return null;
 
