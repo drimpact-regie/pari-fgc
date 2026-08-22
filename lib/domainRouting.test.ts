@@ -18,6 +18,11 @@ describe("classifyPath", () => {
     expect(classifyPath("/register")).toBeNull();
     expect(classifyPath("/api/bets")).toBeNull();
     expect(classifyPath("/overlay/invitational/abc/match")).toBeNull();
+    // Un streamer connecté sur impactobot.fr doit pouvoir consulter son
+    // solde/lier son compte Twitch sans jamais être renvoyé vers
+    // impactobet.fr (voir Nav.tsx, qui affiche ce lien sur les deux
+    // domaines) — /account reste donc sur le domaine d'où il est visité.
+    expect(classifyPath("/account")).toBeNull();
   });
 
   it("classifies admin, streamer and partner routes as streamer", () => {
@@ -28,21 +33,25 @@ describe("classifyPath", () => {
     expect(classifyPath("/partner/invitational")).toBe("streamer");
   });
 
-  it("locks browser-navigated Twitch OAuth entry points to their owning domain despite the /api/ exemption", () => {
-    // Ces routes calculent leur redirect_uri Twitch depuis l'origine de la
-    // requête (voir app/api/twitch/link/*, app/api/streamer/authorize/*,
-    // app/api/admin/twitch/*) — les atteindre depuis le mauvais domaine
-    // (favori, URL tapée à la main) produit un redirect_uri jamais
+  it("locks the streamer-only Twitch OAuth entry points to the streamer domain despite the /api/ exemption", () => {
+    // Ces deux flux sont liés à des pages qui n'existent QUE côté streamer
+    // (/streamer, /admin/*) — les atteindre depuis le mauvais domaine
+    // (favori, URL tapée à la main) produirait un redirect_uri jamais
     // enregistré côté Twitch ("The provided redirect_uri does not match").
-    expect(classifyPath("/api/twitch/link/connect")).toBe("parieur");
-    expect(classifyPath("/api/twitch/link/callback")).toBe("parieur");
     expect(classifyPath("/api/streamer/authorize/connect")).toBe("streamer");
     expect(classifyPath("/api/streamer/authorize/callback")).toBe("streamer");
     expect(classifyPath("/api/admin/twitch/connect")).toBe("streamer");
     expect(classifyPath("/api/admin/twitch/callback")).toBe("streamer");
   });
 
-  it("still leaves other /api/ routes (webhooks, shared NextAuth sign-in) unclassified", () => {
+  it("leaves the account-linking flow and other /api/ routes (webhooks, shared NextAuth sign-in) unclassified", () => {
+    // Contrairement au bot self-service/admin ci-dessus, la liaison de
+    // compte Twitch part de /account — accessible sur les deux domaines
+    // (voir ci-dessus) — donc reste elle aussi sur le domaine d'où on l'a
+    // démarrée, pour que le cookie d'état anti-CSRF posé au départ soit
+    // bien celui relu au retour de Twitch.
+    expect(classifyPath("/api/twitch/link/connect")).toBeNull();
+    expect(classifyPath("/api/twitch/link/callback")).toBeNull();
     expect(classifyPath("/api/bets")).toBeNull();
     expect(classifyPath("/api/auth/callback/twitch")).toBeNull();
     expect(classifyPath("/api/twitch/webhook")).toBeNull();
@@ -51,7 +60,6 @@ describe("classifyPath", () => {
   it("classifies everything else as parieur", () => {
     expect(classifyPath("/leaderboard")).toBe("parieur");
     expect(classifyPath("/beaters")).toBe("parieur");
-    expect(classifyPath("/account")).toBe("parieur");
     expect(classifyPath("/t/abc/matches")).toBe("parieur");
     expect(classifyPath("/invitational/request")).toBe("parieur");
   });

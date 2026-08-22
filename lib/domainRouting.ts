@@ -22,21 +22,24 @@ export const STREAMER_CANONICAL_HOST = "www.impactobot.fr";
 // Préfixes toujours servis identiquement sur les deux domaines, jamais
 // redirigés par la classification de domaine (mais peuvent tout de même
 // subir la canonicalisation apex → www, elle, indépendante du domaine).
+// "/account" en fait partie : un streamer connecté sur impactobot.fr doit
+// pouvoir consulter son solde/lier son compte Twitch SANS jamais quitter
+// impactobot.fr (voir Nav.tsx, qui affiche le solde Ex et le lien "mon
+// compte" sur les deux domaines) — un aller-retour vers impactobet.fr ici a
+// cassé la vérification anti-CSRF du lien Twitch (cookie d'état posé sur un
+// domaine, callback reçu sur un autre) en plus d'être une expérience
+// perturbante pour un streamer qui n'a jamais quitté "son" interface.
 const ALWAYS_PREFIXES = ["/api/", "/overlay/", "/login", "/register"];
-const ALWAYS_EXACT = ["/api", "/login", "/register"];
+const ALWAYS_EXACT = ["/api", "/login", "/register", "/account"];
 
-// Sous-ensemble de /api/ verrouillé à UN domaine malgré ALWAYS_PREFIXES
-// ci-dessus : les flux OAuth Twitch qui démarrent et terminent le
-// redirect_uri sur `url.origin` (voir ces routes) doivent recevoir la MÊME
-// origine à l'aller (connect) et au retour (callback), qui doit elle-même
-// être celle enregistrée côté Twitch Developer Console — sinon "The
-// provided redirect_uri does not match". Contrairement aux webhooks/overlays
-// couverts par ALWAYS_PREFIXES (appelés par un système externe qui ne
-// connaît qu'une seule URL déjà configurée), ces routes sont *navigées par
-// le navigateur* depuis une page précise d'un seul domaine (lien relatif) —
-// un favori, une URL tapée à la main, ou une suggestion d'autocomplétion
-// depuis l'autre domaine les atteint sinon avec la mauvaise origine.
-const PARIEUR_ONLY_PREFIXES = ["/api/twitch/link/"]; // lien depuis /account (parieur)
+// Sous-ensemble de /api/ verrouillé à UN SEUL domaine malgré ALWAYS_PREFIXES
+// ci-dessus : contrairement à /api/twitch/link/* (compte perso, voir
+// ALWAYS_EXACT ci-dessus — reste sur le domaine d'où on l'a démarré), ces
+// deux flux sont liés à des pages qui n'existent QUE côté streamer
+// (/streamer, /admin/*) — les verrouiller évite qu'un favori ou une URL
+// tapée à la main sur impactobet.fr ne parte avec un redirect_uri jamais
+// enregistré côté Twitch Developer Console ("The provided redirect_uri does
+// not match").
 const STREAMER_ONLY_PREFIXES = [
   "/api/streamer/authorize/", // lien depuis /streamer (streamer)
   "/api/admin/twitch/", // lien depuis /admin/tournaments (streamer)
@@ -57,7 +60,6 @@ const STREAMER_EXACT = ["/streamer", "/admin"];
 export function classifyPath(pathname: string): SiteDomain | null {
   if (pathname === "/") return null;
 
-  if (PARIEUR_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return "parieur";
   if (STREAMER_ONLY_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return "streamer";
 
   if (ALWAYS_EXACT.includes(pathname)) return null;
