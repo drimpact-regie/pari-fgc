@@ -9,6 +9,7 @@ interface TournamentSummary {
 }
 
 const SECTIONS = [
+  { slug: "beaters", label: "Les Beaters" },
   { slug: "matches", label: "Matchs" },
   { slug: "players", label: "Joueurs" },
   { slug: "top8", label: "Top 8" },
