@@ -143,7 +143,15 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
     throw new RegieError("Aucune étape trouvée côté start.gg pour ce tournoi.");
   }
 
-  const sets = await fetchPhaseSets(eventSlug, phase.id);
+  let sets: StartggSet[];
+  try {
+    sets = await fetchPhaseSets(eventSlug, phase.id);
+  } catch (err) {
+    throw new RegieError(
+      err instanceof StartggApiError ? err.message : "Impossible de contacter start.gg.",
+    );
+  }
+
   if (sets.length === 0) {
     throw new RegieError(
       `Aucun match généré côté start.gg pour l'étape "${phase.name}" (dernière étape de l'event, celle importée par le mode régie). ` +
@@ -179,12 +187,20 @@ export async function activateTournamentRegie(tournamentId: string): Promise<Inv
   // twitchChannel volontairement laissé vide : les paris chat restent sur
   // l'économie/le canal du Tournament lui-même (voir doc du champ
   // InvitationalEvent.linkedTournamentId), pas sur cette coquille interne.
-  return createInvitationalEvent({
-    name: tournament.name,
-    eventDate: new Date(),
-    parsed,
-    linkedTournamentId: tournament.id,
-  });
+  try {
+    return await createInvitationalEvent({
+      name: tournament.name,
+      eventDate: new Date(),
+      parsed,
+      linkedTournamentId: tournament.id,
+    });
+  } catch (err) {
+    // Erreur DB inattendue (ex. activation en double quasi-simultanée) —
+    // reformulée en RegieError pour que la vraie cause remonte jusqu'à
+    // l'admin plutôt que le message générique de la route API.
+    const message = err instanceof Error ? err.message : "Erreur inconnue.";
+    throw new RegieError(`Échec de la création de l'event régie : ${message}`);
+  }
 }
 
 /**
