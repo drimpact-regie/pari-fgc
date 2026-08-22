@@ -35,7 +35,10 @@ export default function DeleteTournamentButton({
       return;
     }
 
-    router.refresh();
+    // Après suppression, cette page (propre à CE tournoi, voir la page
+    // régie) n'a plus de sens — un simple router.refresh() y déclencherait
+    // un 404 sec plutôt que de ramener vers la liste.
+    router.push("/admin/tournaments");
   }
 
   return (

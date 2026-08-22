@@ -1,26 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { listTournaments } from "@/lib/tournaments";
-import { bridgeHref } from "@/lib/domainRouting";
+import { getEventInfo } from "@/lib/startgg";
 import AddTournamentForm from "@/components/AddTournamentForm";
-import TwitchChannelEditor from "@/components/TwitchChannelEditor";
-import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
 import SyncResultsButton from "@/components/SyncResultsButton";
-import DeleteTournamentButton from "@/components/DeleteTournamentButton";
-import { computeChannelAuthorizationStatus, type ChannelAuthorizationStatus } from "@/lib/streamerAuthorization";
-
-const STATUS_BADGE: Record<ChannelAuthorizationStatus, { label: (botLogin: string | null) => string; color: string }> = {
-  current: { label: (botLogin) => `Autorisé (${botLogin ?? "bot"})`, color: "var(--win)" },
-  outdated: { label: () => "Ancien compte — à réautoriser", color: "var(--warn)" },
-  unknown: { label: () => "Statut inconnu", color: "var(--muted)" },
-};
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Liste des tournois façon bannières (même style que l'accueil parieur,
+ * voir app/(site)/page.tsx) — cliquer sur un tournoi mène à sa page de
+ * régie ("Gérer le tournoi"), qui centralise désormais les réglages
+ * propres à CE tournoi (chaîne Twitch, autorisation bot, chat betting,
+ * suppression — voir la page régie).
+ */
 export default async function AdminTournamentsPage({
   searchParams,
 }: {
@@ -30,25 +26,19 @@ export default async function AdminTournamentsPage({
   if (!session?.user?.isAdmin) {
     redirect("/");
   }
-  const host = (await headers()).get("host") ?? "";
 
   const { twitchConnected, twitchError } = await searchParams;
   const tournaments = await listTournaments();
   const botToken = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
+  const sorted = [...tournaments].reverse(); // plus récent d'abord
 
-  const channelLogins = Array.from(
-    new Set(
-      tournaments
-        .map((t) => t.twitchChannel?.toLowerCase())
-        .filter((c): c is string => Boolean(c)),
+  const bannerUrls = await Promise.all(
+    sorted.map((t) =>
+      getEventInfo(t.eventSlug)
+        .then((info) => info?.bannerUrl ?? null)
+        .catch(() => null),
     ),
   );
-  const authorizations = channelLogins.length
-    ? await prisma.streamerChannelAuthorization.findMany({
-        where: { twitchLogin: { in: channelLogins } },
-      })
-    : [];
-  const authorizationByChannel = new Map(authorizations.map((a) => [a.twitchLogin, a]));
 
   return (
     <div className="flex flex-col gap-4">
@@ -81,79 +71,27 @@ export default async function AdminTournamentsPage({
         </a>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr
-              className="text-left"
-              style={{ background: "var(--surface-alt)", color: "var(--muted)" }}
+      <div className="flex flex-col gap-3">
+        {sorted.map((t, i) => {
+          const bannerUrl = bannerUrls[i];
+          return (
+            <Link
+              key={t.id}
+              href={`/admin/tournaments/${t.id}/regie`}
+              className="card relative flex items-end overflow-hidden hover:opacity-90"
+              style={{
+                height: "8rem",
+                backgroundImage: bannerUrl
+                  ? `linear-gradient(rgba(11,13,18,0.15), rgba(11,13,18,0.9)), url(${bannerUrl})`
+                  : undefined,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
             >
-              <th className="px-4 py-2 font-medium">Nom</th>
-              <th className="px-4 py-2 font-medium">Slug start.gg</th>
-              <th className="px-4 py-2 font-medium">Chaîne Twitch</th>
-              <th className="px-4 py-2 font-medium">Autorisation bot</th>
-              <th className="px-4 py-2 font-medium">Chat betting</th>
-              <th className="px-4 py-2 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tournaments.map((t) => {
-              const authStatus = t.twitchChannel
-                ? computeChannelAuthorizationStatus(
-                    authorizationByChannel.get(t.twitchChannel.toLowerCase()) ?? null,
-                    botToken?.login ?? null,
-                  )
-                : "unknown";
-              const badge = STATUS_BADGE[authStatus];
-
-              return (
-              <tr key={t.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                <td className="px-4 py-2 font-medium">{t.name}</td>
-                <td className="px-4 py-2 font-mono text-xs" style={{ color: "var(--muted)" }}>
-                  {t.eventSlug}
-                </td>
-                <td className="px-4 py-2">
-                  <TwitchChannelEditor tournamentId={t.id} initialChannel={t.twitchChannel} />
-                </td>
-                <td className="px-4 py-2">
-                  {t.twitchChannel ? (
-                    <span className="text-xs" style={{ color: badge.color }}>
-                      {badge.label(botToken?.login ?? null)}
-                    </span>
-                  ) : (
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      —
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2">
-                  {t.twitchChannel ? (
-                    <TwitchSubscribeButton
-                      tournamentId={t.id}
-                      active={Boolean(t.twitchSubscriptionId)}
-                    />
-                  ) : (
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      Renseignez une chaîne d&apos;abord
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    <Link href={bridgeHref(`/t/${t.id}/matches`, host)} className="underline" style={{ color: "var(--accent)" }}>
-                      Voir
-                    </Link>
-                    <Link href={`/admin/tournaments/${t.id}/regie`} className="underline" style={{ color: "var(--accent)" }}>
-                      Régie
-                    </Link>
-                    <DeleteTournamentButton tournamentId={t.id} tournamentName={t.name} />
-                  </div>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              <span className="font-semibold text-lg p-4 drop-shadow">{t.name}</span>
+            </Link>
+          );
+        })}
       </div>
 
       <AddTournamentForm />

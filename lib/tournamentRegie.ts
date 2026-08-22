@@ -118,7 +118,14 @@ export function buildRegieMatchesFromSets(sets: StartggSet[]): ParsedMatch[] {
   if (grandFinalOnlySets.length > 0) orderedBuckets.push(grandFinalOnlySets);
   if (grandFinalResetSets.length > 0) orderedBuckets.push(grandFinalResetSets);
 
-  return orderedBuckets.flatMap((bucketSets) => bucketSets.map((set, i) => setToParsedMatch(set, i)));
+  // Index global (pas remis à zéro à chaque round) : buildInvitationalBracketColumns
+  // trie TOUS les matchs par orderIndex pour déterminer l'ordre d'apparition
+  // des colonnes (voir lib/invitationalBracket.ts) — un index local par
+  // round produisait des doublons entre rounds (round 1 match 0, round 2
+  // match 0...), rendant cet ordre non déterministe côté SQL (colonnes
+  // affichées dans un ordre arbitraire plutôt que Round 1 → Grand Final).
+  let globalIndex = 0;
+  return orderedBuckets.flatMap((bucketSets) => bucketSets.map((set) => setToParsedMatch(set, globalIndex++)));
 }
 
 async function fetchPhaseSets(eventSlug: string, phaseId: string): Promise<StartggSet[]> {

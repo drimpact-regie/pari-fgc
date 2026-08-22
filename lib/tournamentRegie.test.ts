@@ -90,5 +90,11 @@ describe("buildRegieMatchesFromSets", () => {
       "Grand Final",
       "Grand Final Reset",
     ]);
+    // orderIndex doit être global (strictement croissant across rounds), pas
+    // remis à zéro à chaque round — sinon buildInvitationalBracketColumns
+    // (qui trie tous les matchs par orderIndex pour ordonner les colonnes)
+    // ne peut plus distinguer "Winners Round 1" de "Grand Final Reset" et
+    // affiche les colonnes dans un ordre arbitraire.
+    expect(matches.map((m) => m.orderIndex)).toEqual([0, 1, 2, 3, 4]);
   });
 });

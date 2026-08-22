@@ -184,8 +184,17 @@ async function populateOrMergeEventMatches(
   ]);
 
   const existingMatchByKey = new Map<string, (typeof existingMatches)[number]>();
+  // Un match "mode régie" se retrouve d'abord par son startggSetId (stable,
+  // indépendant de orderIndex) plutôt que par (groupLabel, orderIndex) : ce
+  // dernier a changé de sens en cours de route (voir buildRegieMatchesFromSets,
+  // qui utilisait un index local par round avant correction) — matcher
+  // uniquement par la clé aurait fait passer une resynchronisation pour un
+  // import "tout nouveau" et créé des doublons plutôt que de mettre à jour
+  // les matchs existants.
+  const existingMatchBySetId = new Map<string, (typeof existingMatches)[number]>();
   for (const match of existingMatches) {
     existingMatchByKey.set(matchImportKey(match.groupLabel, match.orderIndex), match);
+    if (match.startggSetId) existingMatchBySetId.set(match.startggSetId, match);
   }
 
   const competitorIdByName = new Map<string, string>();
@@ -209,7 +218,9 @@ async function populateOrMergeEventMatches(
 
   for (const match of parsed.matches) {
     const key = matchImportKey(match.groupLabel, match.orderIndex);
-    const existing = existingMatchByKey.get(key);
+    const existing = match.startggSetId
+      ? (existingMatchBySetId.get(match.startggSetId) ?? existingMatchByKey.get(key))
+      : existingMatchByKey.get(key);
 
     if (existing) {
       const locked =
@@ -230,6 +241,7 @@ async function populateOrMergeEventMatches(
         where: { id: existing.id },
         data: {
           groupLabel: match.groupLabel,
+          orderIndex: match.orderIndex,
           competitorAId,
           placeholderA: match.placeholderA,
           competitorBId,

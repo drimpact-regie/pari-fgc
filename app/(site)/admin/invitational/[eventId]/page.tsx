@@ -26,10 +26,29 @@ const FORMAT_LABELS: Record<string, string> = {
   LIST: "Liste de matchs",
 };
 
+type Tab = "matchs" | "overlay";
+
+function TabLink({ eventId, tab, active, children }: { eventId: string; tab: Tab; active: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={tab === "matchs" ? `/admin/invitational/${eventId}` : `/admin/invitational/${eventId}?tab=${tab}`}
+      className="px-3 py-2 text-sm"
+      style={{
+        borderBottom: active ? "2px solid var(--accent)" : "2px solid transparent",
+        color: active ? "var(--accent)" : "var(--muted)",
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
 export default async function AdminInvitationalEventPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ eventId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const session = await auth();
   if (!session?.user?.isAdmin) {
@@ -37,6 +56,9 @@ export default async function AdminInvitationalEventPage({
   }
 
   const { eventId } = await params;
+  const { tab: rawTab } = await searchParams;
+  const tab: Tab = rawTab === "overlay" ? "overlay" : "matchs";
+
   const event = await prisma.invitationalEvent.findUnique({ where: { id: eventId } });
   if (!event) {
     notFound();
@@ -68,71 +90,90 @@ export default async function AdminInvitationalEventPage({
         </p>
       </div>
 
-      <PartnerInvitationalImportForm
-        eventId={event.id}
-        templateUrl={`/templates/invitational/${INVITATIONAL_TEMPLATE_FILENAMES[event.format]}`}
-        hasMatches={matches.length > 0}
-      />
-
-      <div className="card p-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">Chaîne Twitch (pari via chat)</p>
-          <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-            Réutilise le bot Twitch déjà connecté pour les tournois classiques.
-          </p>
-        </div>
-        <InvitationalTwitchChannelEditor eventId={event.id} initialChannel={event.twitchChannel} />
-      </div>
-
-      <InvitationalOverlaySettings
-        eventId={event.id}
-        config={{
-          rundownMinSecondsPerRound: event.rundownMinSecondsPerRound,
-          rundownMaxSecondsPerRound: event.rundownMaxSecondsPerRound,
-          rundownSetupSeconds: event.rundownSetupSeconds,
-          rundownVerifSeconds: event.rundownVerifSeconds,
-          rundownStartAt: event.rundownStartAt,
-        }}
-      />
-
-      <InvitationalOverlayLayoutEditor
-        eventId={event.id}
-        initialBackgroundUrl={event.overlayBackgroundUrl}
-        initialLayout={mergeOverlayLayout(event.overlayLayout)}
-      />
-
-      {isInvitationalBracketFormat(event.format) ? (
-        <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />
-      ) : (
-        <InvitationalBracketOverlayLayoutEditor
+      {/* Un event "mode régie" (voir Tournament.regieEvent) reçoit ses matchs
+          exclusivement depuis start.gg — aucun fichier à importer. */}
+      {!event.linkedTournamentId && (
+        <PartnerInvitationalImportForm
           eventId={event.id}
-          initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
+          templateUrl={`/templates/invitational/${INVITATIONAL_TEMPLATE_FILENAMES[event.format]}`}
+          hasMatches={matches.length > 0}
         />
       )}
 
-      {matches.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          Aucun match importé pour cet event.
-        </p>
-      ) : (
-        Array.from(groups.entries()).map(([groupLabel, groupMatches]) => (
-          <div key={groupLabel || "__default"} className="flex flex-col gap-3">
-            {groupLabel && <h2 className="text-sm font-semibold">{groupLabel}</h2>}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {groupMatches.map((m) => (
-                <InvitationalMatchRow
-                  key={m.id}
-                  match={m}
-                  eventId={event.id}
-                  showChatButton={Boolean(event.twitchChannel)}
-                  isActiveChatMatch={event.activeChatMatchId === m.id}
-                  isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
-                  isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-                />
-              ))}
+      <div className="flex" style={{ borderBottom: "1px solid var(--border)" }}>
+        <TabLink eventId={event.id} tab="matchs" active={tab === "matchs"}>
+          Matchs
+        </TabLink>
+        <TabLink eventId={event.id} tab="overlay" active={tab === "overlay"}>
+          Calcage overlay
+        </TabLink>
+      </div>
+
+      {tab === "matchs" ? (
+        <>
+          <div className="card p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Chaîne Twitch (pari via chat)</p>
+              <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+                Réutilise le bot Twitch déjà connecté pour les tournois classiques.
+              </p>
             </div>
+            <InvitationalTwitchChannelEditor eventId={event.id} initialChannel={event.twitchChannel} />
           </div>
-        ))
+
+          {matches.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              Aucun match importé pour cet event.
+            </p>
+          ) : (
+            Array.from(groups.entries()).map(([groupLabel, groupMatches]) => (
+              <div key={groupLabel || "__default"} className="flex flex-col gap-3">
+                {groupLabel && <h2 className="text-sm font-semibold">{groupLabel}</h2>}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {groupMatches.map((m) => (
+                    <InvitationalMatchRow
+                      key={m.id}
+                      match={m}
+                      eventId={event.id}
+                      showChatButton={Boolean(event.twitchChannel)}
+                      isActiveChatMatch={event.activeChatMatchId === m.id}
+                      isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
+                      isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </>
+      ) : (
+        <>
+          <InvitationalOverlaySettings
+            eventId={event.id}
+            config={{
+              rundownMinSecondsPerRound: event.rundownMinSecondsPerRound,
+              rundownMaxSecondsPerRound: event.rundownMaxSecondsPerRound,
+              rundownSetupSeconds: event.rundownSetupSeconds,
+              rundownVerifSeconds: event.rundownVerifSeconds,
+              rundownStartAt: event.rundownStartAt,
+            }}
+          />
+
+          <InvitationalOverlayLayoutEditor
+            eventId={event.id}
+            initialBackgroundUrl={event.overlayBackgroundUrl}
+            initialLayout={mergeOverlayLayout(event.overlayLayout)}
+          />
+
+          {isInvitationalBracketFormat(event.format) ? (
+            <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />
+          ) : (
+            <InvitationalBracketOverlayLayoutEditor
+              eventId={event.id}
+              initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
+            />
+          )}
+        </>
       )}
     </div>
   );

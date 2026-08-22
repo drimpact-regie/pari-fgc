@@ -42,13 +42,10 @@ export default async function Nav() {
                   <Link href="/admin/streamers" className="hover:opacity-80">
                     Les streameurs
                   </Link>
-                  <Link href="/admin/tournaments" className="hover:opacity-80">
-                    Tournois
-                  </Link>
                   <Link href="/admin/invitational" className="hover:opacity-80">
                     Invitational / Prestataire
                   </Link>
-                  <Link href="/admin" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
+                  <Link href="/admin/tournaments" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
                     Admin
                   </Link>
                 </>
