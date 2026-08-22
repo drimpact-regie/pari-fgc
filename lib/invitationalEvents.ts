@@ -229,6 +229,19 @@ async function populateOrMergeEventMatches(
         existing.scoreB != null ||
         existing.winnerId != null;
       if (locked) {
+        // La progression déjà faite (compétiteurs, score, vainqueur) ne
+        // doit jamais être touchée par une resync — mais orderIndex/
+        // startggSetId sont de la pure métadonnée de position, pas de la
+        // progression : les laisser figés sur un match déjà ouvert/joué
+        // empêchait tout match verrouillé de bénéficier de la correction
+        // d'ordre (voir buildRegieMatchesFromSets), laissant le bracket
+        // affiché dans un ordre mi-corrigé, mi-ancien après resync.
+        if (match.startggSetId && (existing.orderIndex !== match.orderIndex || existing.startggSetId !== match.startggSetId)) {
+          await tx.invitationalMatch.update({
+            where: { id: existing.id },
+            data: { orderIndex: match.orderIndex, startggSetId: match.startggSetId },
+          });
+        }
         summary.skippedLocked++;
         continue;
       }

@@ -83,13 +83,19 @@ export default async function RegieStreamQueuePanel({
   }
 
   // Repli manuel : aucune file d'attente stream côté start.gg (pas
-  // configurée, ou champ indisponible) — liste tous les matchs pas encore
-  // joués, avec les noms déjà connus, pour choisir à la main.
-  const matches = await prisma.invitationalMatch.findMany({
+  // configurée, ou champ indisponible) — liste les matchs pas encore
+  // joués ET déjà prêts (au moins un adversaire connu), avec les noms
+  // déjà repris de start.gg, pour choisir à la main. Un match encore
+  // 100% "à déterminer" des deux côtés n'est jamais actionnable ici —
+  // pas la peine de l'afficher.
+  const allMatches = await prisma.invitationalMatch.findMany({
     where: { eventId: regieEventId, status: { not: "COMPLETED" } },
     include: { competitorA: true, competitorB: true },
     orderBy: { orderIndex: "asc" },
   });
+  const matches = allMatches.filter((m) => m.competitorA || m.competitorB);
+
+  if (matches.length === 0) return null;
 
   return (
     <div className="card p-4 flex flex-col gap-3">
@@ -99,31 +105,25 @@ export default async function RegieStreamQueuePanel({
           Aucune file d&apos;attente stream trouvée côté start.gg — choisis le match à la main.
         </p>
       </div>
-      {matches.length === 0 ? (
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Aucun match en attente.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-1 max-h-80 overflow-y-auto">
-          {matches.map((m) => {
-            const nameA = m.competitorA?.name ?? m.placeholderA ?? "?";
-            const nameB = m.competitorB?.name ?? m.placeholderB ?? "?";
-            return (
-              <div key={m.id} className="flex items-center justify-between gap-2 text-sm">
-                <span>
-                  {m.groupLabel ? `${m.groupLabel} — ` : ""}
-                  {nameA} vs {nameB}
-                </span>
-                <ActiveOverlayMatchButton
-                  eventId={regieEventId}
-                  matchId={m.id}
-                  active={activeOverlayMatchId === m.id}
-                />
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className="flex flex-col gap-1 max-h-80 overflow-y-auto">
+        {matches.map((m) => {
+          const nameA = m.competitorA?.name ?? m.placeholderA ?? "?";
+          const nameB = m.competitorB?.name ?? m.placeholderB ?? "?";
+          return (
+            <div key={m.id} className="flex items-center justify-between gap-2 text-sm">
+              <span>
+                {m.groupLabel ? `${m.groupLabel} — ` : ""}
+                {nameA} vs {nameB}
+              </span>
+              <ActiveOverlayMatchButton
+                eventId={regieEventId}
+                matchId={m.id}
+                active={activeOverlayMatchId === m.id}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
