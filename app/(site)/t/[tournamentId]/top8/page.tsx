@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTournament } from "@/lib/tournaments";
-import { getStandings, StartggApiError } from "@/lib/startgg";
+import { getEventEntrants, getStandings, StartggApiError } from "@/lib/startgg";
 import Top8PickForm, { type PickStatus } from "@/components/Top8PickForm";
 
 export const dynamic = "force-dynamic";
@@ -31,20 +31,25 @@ export default async function Top8Page({
   const tournament = await getTournament(tournamentId);
   if (!tournament) notFound();
 
-  let standings: Awaited<ReturnType<typeof getStandings>> = [];
+  let entrants: { id: string; name: string }[] = [];
+  let placementById = new Map<string, number | null>();
   let error: string | null = null;
   try {
-    standings = await getStandings(tournament.eventSlug);
+    // On liste les joueurs à partir des inscrits (disponibles dès la
+    // clôture des inscriptions), pas du classement (`standings`) qui ne se
+    // remplit qu'une fois des sets terminés — sinon impossible de faire un
+    // pronostic tant que le bracket n'a pas commencé.
+    const [rawEntrants, standings] = await Promise.all([
+      getEventEntrants(tournament.eventSlug),
+      getStandings(tournament.eventSlug),
+    ]);
+    entrants = rawEntrants.map((e) => ({ id: e.id, name: e.name }));
+    placementById = new Map(
+      standings.filter((s) => s.entrant).map((s) => [s.entrant!.id, s.placement]),
+    );
   } catch (err) {
     error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
   }
-
-  const entrants = standings
-    .filter((s) => s.entrant)
-    .map((s) => ({ id: s.entrant!.id, name: s.entrant!.name }));
-  const placementById = new Map(
-    standings.filter((s) => s.entrant).map((s) => [s.entrant!.id, s.placement]),
-  );
 
   const [myPick, allPicks] = await Promise.all([
     prisma.topEightPick.findUnique({
@@ -86,7 +91,13 @@ export default async function Top8Page({
         </div>
       )}
 
-      {!error && (
+      {!error && entrants.length === 0 && (
+        <div className="card p-4 text-sm" style={{ color: "var(--muted)" }}>
+          Aucun joueur inscrit pour le moment sur start.gg pour ce tournoi.
+        </div>
+      )}
+
+      {!error && entrants.length > 0 && (
         <Top8PickForm
           tournamentId={tournamentId}
           entrants={entrants}
