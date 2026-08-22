@@ -2,9 +2,11 @@ import Link from "next/link";
 import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { listTournaments } from "@/lib/tournaments";
 import { getEventInfo } from "@/lib/startgg";
 import { crossDomainHref, domainOfHost } from "@/lib/domainRouting";
+import { isAuthorizedStreamer } from "@/lib/streamerAuthorization";
 
 /**
  * "/" est servie IDENTIQUEMENT quel que soit le domaine côté routage
@@ -48,6 +50,38 @@ export default async function Home() {
   }
 
   if (domainOfHost(host) === "streamer") {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { twitchId: true },
+    });
+    const authorized = await isAuthorizedStreamer({
+      isAdmin: session.user.isAdmin,
+      twitchId: dbUser?.twitchId ?? null,
+    });
+
+    if (!authorized) {
+      return (
+        <div className="max-w-md mx-auto card p-6 flex flex-col gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">Accès réservé</h1>
+            <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+              L&apos;espace streamer/régie est réservé aux chaînes Twitch autorisées par
+              l&apos;équipe Impact&apos;O Bet. Connecte-toi avec le compte Twitch de ta chaîne, ou
+              demande à un admin de t&apos;ajouter à la liste des streamers autorisés.
+            </p>
+          </div>
+          <Link href="/streamer" className="btn text-center">
+            Installer le bot sur ma chaîne
+          </Link>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            <Link href={crossDomainHref("/", "parieur", host)} className="underline">
+              Voir le site parieur
+            </Link>
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="max-w-md mx-auto card p-6 flex flex-col gap-4">
         <div>

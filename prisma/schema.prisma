@@ -289,6 +289,27 @@ model StreamerChannelAuthorization {
   updatedAt       DateTime @updatedAt
 }
 
+/**
+ * Liste blanche gérée par un admin : quelles chaînes Twitch ont le droit
+ * d'accéder à l'espace streamer/régie (impactobot.fr) une fois connectées
+ * sur le site. Distinct de StreamerChannelAuthorization (qui suit l'octroi
+ * du scope channel:bot au bot, pas un droit d'accès au site).
+ *
+ * twitchUserId (l'id numérique Twitch, stable) est ce qui sert réellement à
+ * matcher un compte site (User.twitchId) — twitchLogin n'est gardé que pour
+ * l'affichage admin et pour permettre de retrouver l'entrée sans repasser
+ * par l'API Twitch. Résolu via l'API Twitch (lib/twitch.ts,
+ * getTwitchUserByLogin) au moment où un admin saisit le nom de la chaîne,
+ * pour ne jamais dépendre d'une saisie manuelle erronée de l'id.
+ */
+model AuthorizedStreamer {
+  id           String   @id @default(cuid())
+  twitchLogin  String   @unique
+  twitchUserId String   @unique
+  displayName  String
+  createdAt    DateTime @default(now())
+}
+
 model Bet {
   id                    String    @id @default(cuid())
   userId                String

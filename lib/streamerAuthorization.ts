@@ -1,4 +1,27 @@
+import { prisma } from "@/lib/prisma";
+
 export type ChannelAuthorizationStatus = "current" | "outdated" | "unknown";
+
+/**
+ * Accès à l'espace streamer/régie (impactobot.fr) : réservé aux admins et
+ * aux chaînes Twitch explicitement autorisées (AuthorizedStreamer, gérée
+ * depuis /admin/streamers), matchées via l'id Twitch numérique déjà associé
+ * au compte connecté (User.twitchId, rempli à la connexion via Twitch ou au
+ * premier pari via chat) — pas de compte Twitch lié = pas d'accès, même
+ * pour une chaîne autorisée, tant que la personne ne s'est pas connectée.
+ */
+export async function isAuthorizedStreamer(user: {
+  isAdmin: boolean;
+  twitchId: string | null;
+}): Promise<boolean> {
+  if (user.isAdmin) return true;
+  if (!user.twitchId) return false;
+
+  const entry = await prisma.authorizedStreamer.findUnique({
+    where: { twitchUserId: user.twitchId },
+  });
+  return entry !== null;
+}
 
 /**
  * Compare le compte qui jouait le rôle du bot au moment où une chaîne a
