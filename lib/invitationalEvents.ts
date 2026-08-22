@@ -42,6 +42,15 @@ export async function listInvitationalEventsForOwner(ownerUserId: string): Promi
  * jamais laisser un event à moitié importé si quelque chose échoue en
  * cours de route.
  */
+// Défaut Prisma (5s) trop court pour un import "mode régie" d'un bracket
+// complet (jusqu'à plusieurs dizaines de matchs, un create/update
+// séquentiel par match — voir populateOrMergeEventMatches) : un import
+// Excel Invitational classique reste largement dans les clous, mais un gros
+// tournoi start.gg dépassait le délai, la transaction se faisant fermer par
+// la base en cours de route (message Prisma trompeur : erreur "transaction
+// not found" plutôt qu'un timeout explicite).
+const LARGE_IMPORT_TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
+
 export async function createInvitationalEvent(input: {
   name: string;
   eventDate: Date;
@@ -49,18 +58,21 @@ export async function createInvitationalEvent(input: {
   /** Mode régie (voir lib/tournamentRegie.ts) : lie cet event au Tournament start.gg dont il reprend le bracket. */
   linkedTournamentId?: string;
 }): Promise<InvitationalEvent> {
-  return prisma.$transaction(async (tx) => {
-    const event = await tx.invitationalEvent.create({
-      data: {
-        name: input.name,
-        eventDate: input.eventDate,
-        format: input.parsed.format,
-        linkedTournamentId: input.linkedTournamentId,
-      },
-    });
-    await populateOrMergeEventMatches(tx, event.id, input.parsed);
-    return event;
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const event = await tx.invitationalEvent.create({
+        data: {
+          name: input.name,
+          eventDate: input.eventDate,
+          format: input.parsed.format,
+          linkedTournamentId: input.linkedTournamentId,
+        },
+      });
+      await populateOrMergeEventMatches(tx, event.id, input.parsed);
+      return event;
+    },
+    LARGE_IMPORT_TRANSACTION_OPTIONS,
+  );
 }
 
 /**
@@ -125,7 +137,10 @@ export async function importMatchesIntoInvitationalEvent(
     );
   }
 
-  return prisma.$transaction((tx) => populateOrMergeEventMatches(tx, eventId, parsed));
+  return prisma.$transaction(
+    (tx) => populateOrMergeEventMatches(tx, eventId, parsed),
+    LARGE_IMPORT_TRANSACTION_OPTIONS,
+  );
 }
 
 /**
