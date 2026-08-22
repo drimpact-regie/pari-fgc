@@ -21,6 +21,7 @@ describe("classifyPath", () => {
   });
 
   it("classifies admin, streamer and partner routes as streamer", () => {
+    expect(classifyPath("/admin")).toBe("streamer");
     expect(classifyPath("/admin/tournaments")).toBe("streamer");
     expect(classifyPath("/admin/ex")).toBe("streamer");
     expect(classifyPath("/streamer")).toBe("streamer");

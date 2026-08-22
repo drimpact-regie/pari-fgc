@@ -8,7 +8,7 @@ const ADMIN_LINKS = [
   { href: "/admin/characters", label: "Personnages" },
   { href: "/admin/parry", label: "Le Pari du Parry" },
   { href: "/admin/ex", label: "Soldes Ex" },
-  { href: "/admin/streamers", label: "Streamers autorisés" },
+  { href: "/admin/streamers", label: "Les streameurs" },
 ] as const;
 
 export default function AdminMenu({ host }: { host: string }) {

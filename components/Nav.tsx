@@ -12,7 +12,8 @@ export default async function Nav() {
   const host = (await headers()).get("host") ?? "";
   // Même app, mais l'identité affichée change selon le domaine : "Bet" pour
   // le parieur (impactobet.fr), "Bot" pour le streamer/régie (impactobot.fr).
-  const brandName = domainOfHost(host) === "streamer" ? "Impact'O Bot" : "Impact'O Bet";
+  const isStreamerDomain = domainOfHost(host) === "streamer";
+  const brandName = isStreamerDomain ? "Impact'O Bot" : "Impact'O Bet";
   const currentUser = session?.user
     ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
     : null;
@@ -35,13 +36,34 @@ export default async function Nav() {
 
         {session?.user ? (
           <nav className="flex items-center gap-4 text-sm">
-            <Link href={bridgeHref("/leaderboard", host)} className="hover:opacity-80">
-              LeaderBet
-            </Link>
-            <Link href={bridgeHref("/beaters", host)} className="hover:opacity-80">
-              Les Beaters
-            </Link>
-            {session.user.isAdmin && <AdminMenu host={host} />}
+            {isStreamerDomain ? (
+              session.user.isAdmin && (
+                <>
+                  <Link href="/admin/streamers" className="hover:opacity-80">
+                    Les streameurs
+                  </Link>
+                  <Link href="/admin/tournaments" className="hover:opacity-80">
+                    Tournois
+                  </Link>
+                  <Link href="/admin/invitational" className="hover:opacity-80">
+                    Invitational / Prestataire
+                  </Link>
+                  <Link href="/admin" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
+                    Admin
+                  </Link>
+                </>
+              )
+            ) : (
+              <>
+                <Link href={bridgeHref("/leaderboard", host)} className="hover:opacity-80">
+                  LeaderBet
+                </Link>
+                <Link href={bridgeHref("/beaters", host)} className="hover:opacity-80">
+                  Les Beaters
+                </Link>
+                {session.user.isAdmin && <AdminMenu host={host} />}
+              </>
+            )}
             {ownedInvitationalCount > 0 && (
               <Link href={bridgeHref("/partner/invitational", host)} className="hover:opacity-80">
                 Mes events

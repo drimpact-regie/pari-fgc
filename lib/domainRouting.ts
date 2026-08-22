@@ -29,7 +29,7 @@ const ALWAYS_EXACT = ["/api", "/login", "/register"];
 // portail Invitational (admin + partenaire), tout /admin/*, tout /overlay/*
 // (déjà couvert par ALWAYS_PREFIXES ci-dessus, cité ici pour mémoire).
 const STREAMER_PREFIXES = ["/admin/", "/streamer", "/partner/"];
-const STREAMER_EXACT = ["/streamer"];
+const STREAMER_EXACT = ["/streamer", "/admin"];
 
 /**
  * Classe un chemin (pathname, sans domaine) en "parieur", "streamer", ou
