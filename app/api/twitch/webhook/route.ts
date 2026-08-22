@@ -26,9 +26,11 @@ import {
   isResetCommand,
   isTop8Command,
   matchCharacterName,
+  parseBetTarget,
   parseMvcCommand,
   parseResetCommand,
   parseTop8Target,
+  roundNumberFromText,
 } from "@/lib/chatBets";
 import {
   detectNewLateBracketResults,
@@ -64,7 +66,7 @@ function accountLinkHint(): string {
  * envoyée sur "!bet", "!bet aide" ou "!bet help".
  */
 const HELP_TEXT =
-  "Paris chat : !bet <joueur> (vainqueur d'un match) | " +
+  "Paris chat : !bet [r<round>] <joueur> (vainqueur d'un match, précise le round si ambigu ex. \"!bet r1 <joueur>\") | " +
   "!bet mvc <personnage> <0-8> (MVC) | !bet reset oui|non (reset de bracket) | " +
   "!bet top8 <j1, j2, ..., j8> (pronostic top 8, alias : !top8). " +
   "Compte Twitch lié requis pour mvc/reset" +
@@ -372,6 +374,11 @@ async function handleBetCommand(
     await reply(broadcasterId, formatBetResultMessage(chatter.displayName, chosen.name, result));
   };
 
+  // Un joueur peut avoir plusieurs sets "non commencés" ouverts en parallèle
+  // (ex. plusieurs rounds de poule déjà générés côté start.gg) : accepte un
+  // préfixe optionnel "r1"/"round 1" pour désambiguïser (voir parseBetTarget).
+  const { roundNumber, playerQuery } = parseBetTarget(target);
+
   if (tournament.activeChatSetId) {
     let activeSet: StartggSet | null = null;
     try {
@@ -380,7 +387,7 @@ async function handleBetCommand(
       activeSet = null;
     }
     if (activeSet && activeSet.state === SET_STATE.NOT_STARTED) {
-      const chosen = matchEntrant(target, openEntrants(activeSet));
+      const chosen = matchEntrant(playerQuery, openEntrants(activeSet));
       if (chosen) {
         await respond(activeSet, chosen);
         return;
@@ -396,10 +403,17 @@ async function handleBetCommand(
     return;
   }
 
-  const candidates = allSets
-    .filter((set) => set.state === SET_STATE.NOT_STARTED)
+  let openSets = allSets.filter((set) => set.state === SET_STATE.NOT_STARTED);
+  if (roundNumber !== null) {
+    const filtered = openSets.filter((set) => roundNumberFromText(set.fullRoundText) === roundNumber);
+    // Si rien ne correspond à ce round (libellé différent, faute de frappe),
+    // on retombe sur tous les sets ouverts plutôt que de bloquer le pari.
+    if (filtered.length > 0) openSets = filtered;
+  }
+
+  const candidates = openSets
     .map((set) => {
-      const chosen = matchEntrant(target, openEntrants(set));
+      const chosen = matchEntrant(playerQuery, openEntrants(set));
       return chosen ? { set, chosen } : null;
     })
     .filter((c): c is { set: StartggSet; chosen: { id: string; name: string } } => c !== null);
@@ -409,13 +423,13 @@ async function handleBetCommand(
   // que silencieusement ignoré (impossible auparavant de distinguer "le
   // message n'est jamais arrivé" de "le pari a échoué pour telle raison").
   if (candidates.length === 0) {
-    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${target}".`);
+    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${playerQuery}".`);
     return;
   }
   if (candidates.length > 1) {
     await reply(
       broadcasterId,
-      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${target}", précise le nom complet.`,
+      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${playerQuery}", précise avec le round (ex. "!bet r1 ${playerQuery}").`,
     );
     return;
   }

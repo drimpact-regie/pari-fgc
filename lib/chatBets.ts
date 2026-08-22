@@ -157,3 +157,30 @@ export function isHelpCommand(target: string): boolean {
   const normalized = target.trim().toLowerCase();
   return normalized === "" || normalized === "aide" || normalized === "help";
 }
+
+// --- Pari classique : "!bet [r<N>] <joueur>" --------------------------------
+
+export interface ParsedBetTarget {
+  /** Numéro de round explicitement précisé ("r1"/"round 1" ...), pour désambiguïser
+   *  quand le même joueur a plusieurs matchs ouverts en parallèle (ex. poules). */
+  roundNumber: number | null;
+  playerQuery: string;
+}
+
+/**
+ * Un joueur peut avoir plusieurs sets "non commencés" ouverts en même temps
+ * (ex. plusieurs rounds de poule déjà générés côté start.gg) : "!bet <joueur>"
+ * devient alors ambigu. On accepte un préfixe optionnel "r1"/"r 1"/"round 1"
+ * pour filtrer sur le numéro de round avant de matcher le nom.
+ */
+export function parseBetTarget(raw: string): ParsedBetTarget {
+  const match = /^r(?:ound)?\.?\s*(\d+)\s+(.+)$/i.exec(raw.trim());
+  if (!match) return { roundNumber: null, playerQuery: raw.trim() };
+  return { roundNumber: Number(match[1]), playerQuery: match[2].trim() };
+}
+
+/** Premier numéro de round trouvé dans un libellé start.gg ("Round 1", "Winners Round 2"...). */
+export function roundNumberFromText(fullRoundText: string): number | null {
+  const match = /round\s*(\d+)/i.exec(fullRoundText);
+  return match ? Number(match[1]) : null;
+}
