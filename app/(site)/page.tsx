@@ -22,20 +22,28 @@ export default async function Home() {
   const host = (await headers()).get("host") ?? "";
 
   if (!session?.user) {
+    // impactobot.fr est une interface streamer/régie uniquement — pas de
+    // choix "Parieur" avant connexion sur ce domaine (voir domainOfHost).
+    // En dev/preview (un seul hostname), domainOfHost() renvoie `null` et
+    // l'accueil garde les deux entrées, comme aujourd'hui.
+    const isStreamerDomain = domainOfHost(host) === "streamer";
     return (
       <div className="max-w-md mx-auto card p-6 flex flex-col gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Impact&apos;O Bet</h1>
+          <h1 className="text-xl font-semibold">{isStreamerDomain ? "Impact'O Bot" : "Impact'O Bet"}</h1>
           <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
-            Paris entre potes sur les brackets FGC — via le site ou directement depuis le chat
-            Twitch.
+            {isStreamerDomain
+              ? "Régie de tournois FGC : bot Twitch, paris depuis le chat, overlays de stream."
+              : "Paris entre potes sur les brackets FGC — via le site ou directement depuis le chat Twitch."}
           </p>
         </div>
         <div className="flex flex-col gap-3">
-          <Link href="/register" className="btn btn-primary text-center">
-            Parieur — je veux parier
-          </Link>
-          <Link href="/streamer" className="btn text-center">
+          {!isStreamerDomain && (
+            <Link href="/register" className="btn btn-primary text-center">
+              Parieur — je veux parier
+            </Link>
+          )}
+          <Link href="/streamer" className={isStreamerDomain ? "btn btn-primary text-center" : "btn text-center"}>
             Streamer — j&apos;anime un tournoi
           </Link>
         </div>
