@@ -12,13 +12,17 @@ import { mergePositionedLayout, OVERLAY_CANVAS_HEIGHT, OVERLAY_CANVAS_WIDTH, typ
 
 export { OVERLAY_CANVAS_WIDTH, OVERLAY_CANVAS_HEIGHT, type OverlayPosition };
 
-export const BRACKET_OVERLAY_ELEMENT_KEYS = ["standings", "matchList"] as const;
+export const BRACKET_OVERLAY_ELEMENT_KEYS = ["standings", "matchList", "bracket"] as const;
 
 export type BracketOverlayElementKey = (typeof BRACKET_OVERLAY_ELEMENT_KEYS)[number];
 
 export const BRACKET_OVERLAY_ELEMENT_LABELS: Record<BracketOverlayElementKey, string> = {
   standings: "Classement",
   matchList: "Liste de matchs",
+  // Position + échelle de l'arbre de bracket entier (formats BRACKET_SINGLE/
+  // BRACKET_DOUBLE) — "standings"/"matchList" ne s'appliquent qu'aux formats
+  // sans structure de bracket, voir components/overlay/OverlayBracketView.tsx.
+  bracket: "Bracket (arbre)",
 };
 
 export type BracketOverlayLayout = Record<BracketOverlayElementKey, OverlayPosition>;
@@ -34,6 +38,7 @@ export type BracketOverlayLayout = Record<BracketOverlayElementKey, OverlayPosit
 export const DEFAULT_BRACKET_OVERLAY_LAYOUT: BracketOverlayLayout = {
   standings: { x: 80, y: 260, size: 1 },
   matchList: { x: 700, y: 260, size: 1 },
+  bracket: { x: 40, y: 160, size: 1 },
 };
 
 /**

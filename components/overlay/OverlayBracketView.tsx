@@ -304,9 +304,9 @@ export default function OverlayBracketView({ eventId }: { eventId: string }) {
         }}
       >
         {data.isBracketFormat && data.bracket ? (
-          <div className="p-4">
+          <PositionedPanel layout={layout} elementKey="bracket">
             <InvitationalBracket columns={data.bracket} />
-          </div>
+          </PositionedPanel>
         ) : (
           <>
             {data.standings && data.standings.length > 0 && (

@@ -126,24 +126,36 @@ export default async function AdminInvitationalEventPage({
               Aucun match importé pour cet event.
             </p>
           ) : (
-            Array.from(groups.entries()).map(([groupLabel, groupMatches]) => (
-              <div key={groupLabel || "__default"} className="flex flex-col gap-3">
-                {groupLabel && <h2 className="text-sm font-semibold">{groupLabel}</h2>}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  {groupMatches.map((m) => (
-                    <InvitationalMatchRow
-                      key={m.id}
-                      match={m}
-                      eventId={event.id}
-                      showChatButton={Boolean(event.twitchChannel)}
-                      isActiveChatMatch={event.activeChatMatchId === m.id}
-                      isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
-                      isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))
+            Array.from(groups.entries()).map(([groupLabel, groupMatches]) => {
+              // "Prêt" = au moins un adversaire déjà déterminé (ou déjà
+              // ouvert/joué) — un round encore 100% "À déterminer" des deux
+              // côtés est replié par défaut plutôt que d'encombrer l'écran
+              // (repéré sur un bracket à 97 matchs, la plupart encore TBD).
+              const readyCount = groupMatches.filter(
+                (m) => m.status !== "NOT_OPEN" || m.competitorA || m.competitorB,
+              ).length;
+              return (
+                <details key={groupLabel || "__default"} open={readyCount > 0} className="flex flex-col gap-3">
+                  <summary className="text-sm font-semibold cursor-pointer">
+                    {groupLabel || "Matchs"} — {readyCount}/{groupMatches.length} prêt
+                    {readyCount > 1 ? "s" : ""}
+                  </summary>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    {groupMatches.map((m) => (
+                      <InvitationalMatchRow
+                        key={m.id}
+                        match={m}
+                        eventId={event.id}
+                        showChatButton={Boolean(event.twitchChannel)}
+                        isActiveChatMatch={event.activeChatMatchId === m.id}
+                        isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
+                        isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+                      />
+                    ))}
+                  </div>
+                </details>
+              );
+            })
           )}
         </>
       ) : (
@@ -165,14 +177,16 @@ export default async function AdminInvitationalEventPage({
             initialLayout={mergeOverlayLayout(event.overlayLayout)}
           />
 
-          {isInvitationalBracketFormat(event.format) ? (
+          {isInvitationalBracketFormat(event.format) && (
             <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />
-          ) : (
-            <InvitationalBracketOverlayLayoutEditor
-              eventId={event.id}
-              initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
-            />
           )}
+
+          {/* "bracket" (arbre entier) pour les formats bracket, "standings"/
+              "matchList" pour les autres — voir lib/invitationalBracketOverlayLayout.ts. */}
+          <InvitationalBracketOverlayLayoutEditor
+            eventId={event.id}
+            initialLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
+          />
         </>
       )}
     </div>
