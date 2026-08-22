@@ -3,13 +3,16 @@ import { headers } from "next/headers";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { bridgeHref } from "@/lib/domainRouting";
+import { bridgeHref, domainOfHost } from "@/lib/domainRouting";
 import LogoutButton from "@/components/LogoutButton";
 import AdminMenu from "@/components/AdminMenu";
 
 export default async function Nav() {
   const session = await auth();
   const host = (await headers()).get("host") ?? "";
+  // Même app, mais l'identité affichée change selon le domaine : "Bet" pour
+  // le parieur (impactobet.fr), "Bot" pour le streamer/régie (impactobot.fr).
+  const brandName = domainOfHost(host) === "streamer" ? "Impact'O Bot" : "Impact'O Bet";
   const currentUser = session?.user
     ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
     : null;
@@ -27,7 +30,7 @@ export default async function Nav() {
     >
       <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
         <Link href="/" className="font-semibold tracking-tight">
-          🎮 Impact&apos;O Bet
+          🎮 {brandName}
         </Link>
 
         {session?.user ? (
