@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import ActiveChatInvitationalMatchButton from "@/components/ActiveChatInvitationalMatchButton";
 import ActiveOverlayMatchButton from "@/components/ActiveOverlayMatchButton";
+import ActiveOverlayMatchSwapButton from "@/components/ActiveOverlayMatchSwapButton";
 
 interface Competitor {
   id: string;
@@ -130,12 +131,14 @@ export default function InvitationalMatchRow({
   showChatButton,
   isActiveChatMatch,
   isActiveOverlayMatch,
+  isActiveOverlayMatchSwapped,
 }: {
   match: Match;
   eventId: string;
   showChatButton: boolean;
   isActiveChatMatch: boolean;
   isActiveOverlayMatch: boolean;
+  isActiveOverlayMatchSwapped: boolean;
 }) {
   const router = useRouter();
   const locked = match.status === "COMPLETED";
@@ -283,6 +286,9 @@ export default function InvitationalMatchRow({
         </span>
         <div className="flex items-center gap-2">
           <ActiveOverlayMatchButton eventId={eventId} matchId={match.id} active={isActiveOverlayMatch} />
+          {isActiveOverlayMatch && (
+            <ActiveOverlayMatchSwapButton eventId={eventId} swapped={isActiveOverlayMatchSwapped} />
+          )}
           {showChatButton && match.status === "OPEN" && (
             <ActiveChatInvitationalMatchButton eventId={eventId} matchId={match.id} active={isActiveChatMatch} />
           )}

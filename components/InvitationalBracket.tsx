@@ -1,4 +1,5 @@
-import { computeWinnersColumnYFractions, type BracketColumnSide } from "@/lib/invitationalBracketTemplate";
+import type { BracketColumnSide } from "@/lib/invitationalBracketTemplate";
+import BracketTree, { type BracketTreeColumn } from "@/components/BracketTree";
 
 export interface BracketCompetitor {
   name: string;
@@ -21,27 +22,23 @@ export interface BracketMatch {
 export interface BracketColumn {
   key: string;
   label: string;
-  /** "legacy" = pas de taille de bracket choisie pour l'event (voir InvitationalEvent.bracketSize) : rendu à espacement égal, sans lignes de connexion (comportement historique). */
+  /** "legacy" = pas de taille de bracket choisie pour l'event (voir InvitationalEvent.bracketSize) — le camp (winners/losers) est alors déduit du libellé du round plutôt que connu à l'avance, voir classifyLegacyColumnSide. */
   side: BracketColumnSide | "legacy";
   /** Un slot `null` = round pas encore atteint/importé (gabarit, voir lib/invitationalBracketTemplate.ts) — jamais le cas en "legacy". */
   matches: (BracketMatch | null)[];
 }
-
-const MATCH_CARD_HEIGHT = 64;
-const MATCH_GAP = 12;
-const CONNECTOR_WIDTH = 40;
 
 function competitorLabel(c: BracketCompetitor | null): string {
   if (!c) return "?";
   return c.tag ? `${c.tag} | ${c.name}` : c.name;
 }
 
-function MatchCard({ match, height }: { match: BracketMatch | null; height?: number }) {
+function MatchCard({ match }: { match: BracketMatch | null }) {
   if (!match) {
     return (
       <div
-        className="rounded-lg px-3 py-2 flex flex-col gap-1 justify-center"
-        style={{ height, border: "1px dashed rgba(255,255,255,0.15)", boxSizing: "border-box" }}
+        className="rounded-lg px-3 py-2 flex flex-col gap-1 justify-center w-44"
+        style={{ height: 64, border: "1px dashed rgba(255,255,255,0.15)", boxSizing: "border-box" }}
       >
         <span style={{ fontSize: "0.75rem", color: "#4b5563", textAlign: "center" }}>À déterminer</span>
       </div>
@@ -50,8 +47,8 @@ function MatchCard({ match, height }: { match: BracketMatch | null; height?: num
 
   return (
     <div
-      className="rounded-lg px-3 py-2 flex flex-col gap-1 justify-center"
-      style={{ height, boxSizing: "border-box", background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}
+      className="rounded-lg px-3 py-2 flex flex-col gap-1 justify-center w-44"
+      style={{ height: 64, boxSizing: "border-box", background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}
     >
       {[
         { competitor: match.competitorA, id: match.competitorAId, score: match.scoreA },
@@ -80,131 +77,55 @@ function MatchCard({ match, height }: { match: BracketMatch | null; height?: num
   );
 }
 
-function ColumnHeader({ label }: { label: string }) {
-  return (
-    <p
-      className="text-center"
-      style={{ fontSize: "0.75rem", fontWeight: 800, color: "#fbbf24", letterSpacing: "0.04em", textTransform: "uppercase" }}
-    >
-      {label}
-    </p>
-  );
+/**
+ * Un event "legacy" (pas de taille de bracket choisie) n'a pas de `side`
+ * connu à l'avance — mais pour le mode régie (voir lib/tournamentRegie.ts),
+ * le libellé de chaque colonne EST le vrai nom de round start.gg
+ * ("Winners Round 1", "Losers Round 2", "Grand Final"...), qui suffit à
+ * déduire le camp de façon fiable sans configuration supplémentaire.
+ */
+function classifyLegacyColumnSide(label: string): "losers" | "winners" {
+  return /^losers?\b/i.test(label.trim()) ? "losers" : "winners";
+}
+
+function columnSide(column: BracketColumn): "losers" | "winners" {
+  if (column.side === "losers") return "losers";
+  if (column.side === "winners" || column.side === "final") return "winners";
+  return classifyLegacyColumnSide(column.label);
+}
+
+function toTreeColumns(columns: BracketColumn[]): BracketTreeColumn<BracketMatch>[] {
+  return columns.map((c) => ({ key: c.key, label: c.label, matches: c.matches }));
 }
 
 /**
- * Lignes de connexion entre deux colonnes adjacentes du camp des vainqueurs
- * (voir computeWinnersColumnYFractions) — tracé en chevron classique d'un
- * bracket : segment horizontal depuis chaque match du round précédent,
- * segment vertical au milieu de l'écart, segment horizontal vers le match
- * du round suivant qui en découle (slot 2i et 2i+1 -> slot i).
+ * Bracket Invitational/Prestataire (et mode régie, voir
+ * lib/tournamentRegie.ts) : même moteur de rendu que Top8Bracket (arbre à
+ * vraies lignes de connexion mesurées en DOM, voir components/BracketTree.tsx)
+ * plutôt que l'ancien calcul géométrique approximatif — celui-ci ne gérait
+ * correctement que le camp des vainqueurs et retombait sur un espacement
+ * égal sans ligne pour tout le reste (camp des perdants, et systématiquement
+ * tous les rounds en mode "legacy", cas du mode régie qui ne choisit jamais
+ * de taille de bracket).
  */
-function WinnersConnector({ fromYs, toYs, height }: { fromYs: number[]; toYs: number[]; height: number }) {
-  const mid = CONNECTOR_WIDTH / 2;
-  return (
-    <svg width={CONNECTOR_WIDTH} height={height} style={{ flexShrink: 0 }}>
-      <g stroke="rgba(251,191,36,0.45)" strokeWidth={2} fill="none">
-        {toYs.map((toY, i) => {
-          const yTop = fromYs[2 * i] * height;
-          const yBottom = fromYs[2 * i + 1] * height;
-          const yTarget = toY * height;
-          return (
-            <g key={i}>
-              <path d={`M0 ${yTop} H${mid}`} />
-              <path d={`M0 ${yBottom} H${mid}`} />
-              <path d={`M${mid} ${yTop} V${yBottom}`} />
-              <path d={`M${mid} ${yTarget} H${CONNECTOR_WIDTH}`} />
-            </g>
-          );
-        })}
-      </g>
-    </svg>
-  );
-}
-
-/**
- * Camp des vainqueurs (ou tout le bracket en simple élimination, un seul
- * camp) : géométrie exacte connue (chaque round est simplement la moitié
- * du précédent), donc positions verticales calculées et vraies lignes de
- * connexion — voir lib/invitationalBracketTemplate.ts pour l'algorithme.
- */
-function WinnersTree({ columns }: { columns: BracketColumn[] }) {
-  const yFractionsByColumn = computeWinnersColumnYFractions(columns.map((c) => c.matches.length));
-  const leafCount = columns[0]?.matches.length ?? 1;
-  const height = leafCount * MATCH_CARD_HEIGHT + (leafCount - 1) * MATCH_GAP;
-
-  return (
-    <>
-      {columns.map((column, colIndex) => (
-        <div key={column.key} className="flex items-stretch">
-          <div className="flex flex-col gap-2" style={{ minWidth: "13rem" }}>
-            <ColumnHeader label={column.label} />
-            <div style={{ position: "relative", height }}>
-              {column.matches.map((match, i) => (
-                <div
-                  key={match?.id ?? `${column.key}-${i}`}
-                  style={{
-                    position: "absolute",
-                    top: yFractionsByColumn[colIndex][i] * height - MATCH_CARD_HEIGHT / 2,
-                    left: 0,
-                    right: 0,
-                  }}
-                >
-                  <MatchCard match={match} height={MATCH_CARD_HEIGHT} />
-                </div>
-              ))}
-            </div>
-          </div>
-          {colIndex < columns.length - 1 && (
-            <div className="flex items-end pb-0" style={{ marginTop: "1.5rem" }}>
-              <WinnersConnector fromYs={yFractionsByColumn[colIndex]} toYs={yFractionsByColumn[colIndex + 1]} height={height} />
-            </div>
-          )}
-        </div>
-      ))}
-    </>
-  );
-}
-
-/**
- * Camp des perdants, colonnes "final" (Grand Final/Reset), et rendu
- * "legacy" (event sans taille de bracket choisie) : approximation à
- * espacement égal, sans lignes de connexion précises — la géométrie de ce
- * camp ne se déduit pas simplement d'un round à l'autre (deux rounds
- * consécutifs peuvent avoir le même nombre de matchs, voir
- * lib/invitationalBracketTemplate.ts), donc pas de tracé fiable sans
- * connaître les vraies relations de qualification (hors périmètre, voir le
- * prompt d'origine).
- */
-function FlatColumn({ column }: { column: BracketColumn }) {
-  return (
-    <div className="flex flex-col gap-2" style={{ minWidth: "13rem" }}>
-      <ColumnHeader label={column.label} />
-      <div className="flex-1 flex flex-col justify-around gap-3">
-        {column.matches.map((match, i) => (
-          <MatchCard key={match?.id ?? `${column.key}-${i}`} match={match} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function InvitationalBracket({ columns }: { columns: BracketColumn[] }) {
   if (columns.length === 0) return null;
 
-  // Le camp des vainqueurs (ou tout le bracket en simple élimination) est
-  // toujours un préfixe contigu des colonnes (voir getBracketTemplate) : on
-  // le rend en arbre géométrique, le reste (camp des perdants, Grand
-  // Final/Reset, ou tout en "legacy") à espacement égal.
-  const firstNonWinnersIndex = columns.findIndex((c) => c.side !== "winners");
-  const winnersColumns = firstNonWinnersIndex === -1 ? columns : columns.slice(0, firstNonWinnersIndex);
-  const restColumns = firstNonWinnersIndex === -1 ? [] : columns.slice(firstNonWinnersIndex);
+  const winnersColumns = columns.filter((c) => columnSide(c) === "winners");
+  const losersColumns = columns.filter((c) => columnSide(c) === "losers");
 
   return (
-    <div className="flex items-start gap-6 overflow-x-auto">
-      {winnersColumns.length > 0 && <WinnersTree columns={winnersColumns} />}
-      {restColumns.map((column) => (
-        <FlatColumn key={column.key} column={column} />
-      ))}
+    <div className="flex flex-col gap-6">
+      <BracketTree
+        columns={toTreeColumns(winnersColumns)}
+        title={losersColumns.length > 0 ? "Winners bracket" : undefined}
+        renderMatch={(match) => <MatchCard match={match} />}
+      />
+      <BracketTree
+        columns={toTreeColumns(losersColumns)}
+        title="Losers bracket"
+        renderMatch={(match) => <MatchCard match={match} />}
+      />
     </div>
   );
 }

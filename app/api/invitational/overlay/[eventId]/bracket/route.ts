@@ -49,6 +49,17 @@ function bracketMatchView(m: {
 const TICKER_ITEM_LIMIT = 10;
 
 /**
+ * Un match dont un adversaire n'est pas encore déterminé (TBD/placeholder,
+ * en attente du vainqueur d'un round précédent) ne doit jamais apparaître
+ * dans le bandeau "prochains matchs" : les spectateurs doivent pouvoir
+ * parier sur ce qui est annoncé, donc uniquement des matchs dont les DEUX
+ * adversaires sont déjà de vrais compétiteurs identifiés.
+ */
+function hasBothCompetitorsResolved(m: { competitorAId: string | null; competitorBId: string | null }): boolean {
+  return m.competitorAId != null && m.competitorBId != null;
+}
+
+/**
  * Endpoint public en lecture seule pour l'overlay OBS "bracket / classement"
  * (/overlay/invitational/[eventId]/bracket) — voir Partie 3 du prompt
  * overlay. Renvoie soit un arbre de bracket (formats BRACKET_SINGLE/DOUBLE),
@@ -142,7 +153,7 @@ export async function GET(
     const scheduleById = new Map(schedule.map((s) => [s.id, s]));
 
     upcoming = matches
-      .filter((m) => m.status !== "COMPLETED")
+      .filter((m) => m.status !== "COMPLETED" && hasBothCompetitorsResolved(m))
       .slice(0, TICKER_ITEM_LIMIT)
       .map((m) => {
         const estimate = scheduleById.get(m.id);
@@ -157,7 +168,7 @@ export async function GET(
       });
   } else {
     upcoming = matches
-      .filter((m) => m.status !== "COMPLETED")
+      .filter((m) => m.status !== "COMPLETED" && hasBothCompetitorsResolved(m))
       .slice(0, TICKER_ITEM_LIMIT)
       .map((m) => ({
         id: m.id,

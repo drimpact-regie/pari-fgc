@@ -34,6 +34,33 @@ export async function GET(
     return NextResponse.json({ match: null });
   }
 
+  const competitorA = match.competitorA
+    ? {
+        name: match.competitorA.name,
+        tag: match.competitorA.tag,
+        countryCode: match.competitorA.countryCode,
+        score: match.scoreA,
+      }
+    : match.placeholderA
+      ? { name: match.placeholderA, tag: null, countryCode: null, score: null, placeholder: true }
+      : null;
+  const competitorB = match.competitorB
+    ? {
+        name: match.competitorB.name,
+        tag: match.competitorB.tag,
+        countryCode: match.competitorB.countryCode,
+        score: match.scoreB,
+      }
+    : match.placeholderB
+      ? { name: match.placeholderB, tag: null, countryCode: null, score: null, placeholder: true }
+      : null;
+
+  // Inversion J1/J2 (voir InvitationalEvent.activeOverlayMatchSwapped) : les
+  // joueurs s'installent parfois à l'inverse de ce qui était prévu — on
+  // échange simplement les deux côtés ici, l'overlay lui-même (positions
+  // nameA/nameB...) n'a besoin d'aucune logique supplémentaire.
+  const swapped = event.activeOverlayMatchSwapped;
+
   return NextResponse.json({
     overlayBackgroundUrl: event.overlayBackgroundUrl,
     overlayLayout: mergeOverlayLayout(event.overlayLayout),
@@ -42,26 +69,8 @@ export async function GET(
       groupLabel: match.groupLabel,
       status: match.status,
       ftGames: match.ftGames,
-      competitorA: match.competitorA
-        ? {
-            name: match.competitorA.name,
-            tag: match.competitorA.tag,
-            countryCode: match.competitorA.countryCode,
-            score: match.scoreA,
-          }
-        : match.placeholderA
-          ? { name: match.placeholderA, tag: null, countryCode: null, score: null, placeholder: true }
-          : null,
-      competitorB: match.competitorB
-        ? {
-            name: match.competitorB.name,
-            tag: match.competitorB.tag,
-            countryCode: match.competitorB.countryCode,
-            score: match.scoreB,
-          }
-        : match.placeholderB
-          ? { name: match.placeholderB, tag: null, countryCode: null, score: null, placeholder: true }
-          : null,
+      competitorA: swapped ? competitorB : competitorA,
+      competitorB: swapped ? competitorA : competitorB,
     },
   });
 }

@@ -406,6 +406,13 @@ model InvitationalEvent {
   // indépendante du statut "ouvert au pari" : plusieurs matchs peuvent être
   // en cours en parallèle sur un event, un seul est "à l'écran" à la fois.
   activeOverlayMatchId String?
+  // Inverse l'affichage J1/J2 (nameA/nameB, scoreA/scoreB...) du match
+  // actuellement à l'écran — les joueurs s'installent parfois à l'inverse
+  // de ce qui était prévu côté régie. Ne s'applique qu'au match désigné par
+  // activeOverlayMatchId ; remis à false à chaque changement de match actif
+  // (voir la route PATCH), pour ne jamais hériter par erreur de l'inversion
+  // du match précédent.
+  activeOverlayMatchSwapped Boolean @default(false)
   createdAt             DateTime @default(now())
 
   // Constantes de calcul du Rundown (estimation d'horaires par set),

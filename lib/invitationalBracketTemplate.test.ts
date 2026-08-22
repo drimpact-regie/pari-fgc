@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildTemplatedBracketColumns,
-  computeWinnersColumnYFractions,
-  getBracketTemplate,
-} from "./invitationalBracketTemplate";
+import { buildTemplatedBracketColumns, getBracketTemplate } from "./invitationalBracketTemplate";
 import type { InvitationalBracketMatch } from "./invitationalBracket";
 
 function makeMatch(overrides: Partial<InvitationalBracketMatch> & { id: string; orderIndex: number }): InvitationalBracketMatch {
@@ -101,22 +97,5 @@ describe("buildTemplatedBracketColumns", () => {
     expect(columns).toHaveLength(3);
     expect(columns[1].matches).toEqual([null, null]);
     expect(columns[2].matches).toEqual([null]);
-  });
-});
-
-describe("computeWinnersColumnYFractions", () => {
-  it("evenly spaces the leaf round", () => {
-    const [leaf] = computeWinnersColumnYFractions([4]);
-    expect(leaf).toEqual([0.125, 0.375, 0.625, 0.875]);
-  });
-
-  it("positions each next round at the average of its two feeding matches", () => {
-    const [leaf, semis, final] = computeWinnersColumnYFractions([4, 2, 1]);
-    expect(semis[0]).toBeCloseTo((leaf[0] + leaf[1]) / 2);
-    expect(semis[1]).toBeCloseTo((leaf[2] + leaf[3]) / 2);
-    expect(final[0]).toBeCloseTo((semis[0] + semis[1]) / 2);
-    // La finale doit tomber au centre vertical (0.5) par symétrie d'un
-    // bracket équilibré.
-    expect(final[0]).toBeCloseTo(0.5);
   });
 });

@@ -129,6 +129,7 @@ export default async function PartnerInvitationalEventPage({
                   showChatButton={Boolean(event.twitchChannel)}
                   isActiveChatMatch={event.activeChatMatchId === m.id}
                   isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
+                  isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
                 />
               ))}
             </div>
