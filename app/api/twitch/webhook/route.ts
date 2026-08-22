@@ -123,17 +123,31 @@ function openEntrants(set: StartggSet): StartggEntrant[] {
  * Échec silencieux (solde insuffisant, déjà parié sur ce match...), comme le
  * reste du "!bet" classique qui ne répond jamais dans le chat.
  */
+/**
+ * Résultat d'une tentative de pari chat, pour permettre au bot de répondre
+ * avec la vraie raison de l'échec (voir formatBetResultMessage) au lieu de
+ * rester muet — auparavant totalement invisible en cas de solde
+ * insuffisant, de doublon, etc., ce qui rendait impossible de distinguer
+ * "le pari a échoué pour X raison" de "le message n'est jamais arrivé
+ * jusqu'au serveur".
+ */
+type ChatBetResult = "ok" | "insufficient_balance" | "already_bet" | "preview_set" | "error";
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return Boolean(err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "P2002");
+}
+
 async function placeChatBet(
   set: StartggSet,
   chosenEntrant: { id: string; name: string },
   eventSlug: string,
   chatter: { id: string; login: string; displayName: string },
-) {
+): Promise<ChatBetResult> {
   // Garde-fou en plus du filtrage à la source (getUpcomingSets) : un match
   // "prévisionnel" (voir isPreviewSetId) n'est pas un vrai match résolvable
   // — peut arriver ici via tournament.activeChatSetId, qui contourne ce
   // filtrage en interrogeant start.gg directement par id.
-  if (isPreviewSetId(set.id)) return;
+  if (isPreviewSetId(set.id)) return "preview_set";
 
   const bettor = await ensureChatBettor(chatter);
 
@@ -143,8 +157,8 @@ async function placeChatBet(
   );
   const { oddsA: odds } = computeMatchOdds(chosenSlot?.seedNum ?? null, opponentSlot?.seedNum ?? null);
 
-  await prisma
-    .$transaction(async (tx) => {
+  try {
+    await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: bettor.id }, select: { exBalance: true } });
       if (!user || user.exBalance < DEFAULT_CHAT_BET_STAKE) {
         throw new Error("insufficient_balance");
@@ -170,8 +184,13 @@ async function placeChatBet(
           odds,
         },
       });
-    })
-    .catch(() => undefined); // solde insuffisant ou déjà parié sur ce match : on ignore silencieusement
+    });
+    return "ok";
+  } catch (err) {
+    if (err instanceof Error && err.message === "insufficient_balance") return "insufficient_balance";
+    if (isUniqueConstraintError(err)) return "already_bet";
+    return "error";
+  }
 }
 
 /** Rapproche un nom tapé en chat (nom OU tag) du bon compétiteur, même tolérance que matchEntrant. */
@@ -206,13 +225,13 @@ async function placeInvitationalChatBet(
   match: InvitationalMatch & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor },
   chosen: InvitationalCompetitor,
   chatter: { id: string; login: string; displayName: string },
-) {
+): Promise<ChatBetResult> {
   const bettor = await ensureChatBettor(chatter);
   const { oddsA, oddsB } = computeStreakOdds(match.competitorA.currentStreak, match.competitorB.currentStreak);
   const odds = chosen.id === match.competitorA.id ? oddsA : oddsB;
 
-  await prisma
-    .$transaction(async (tx) => {
+  try {
+    await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({
         where: { id: bettor.id },
         select: { invitationalExBalance: true },
@@ -237,8 +256,29 @@ async function placeInvitationalChatBet(
           odds,
         },
       });
-    })
-    .catch(() => undefined);
+    });
+    return "ok";
+  } catch (err) {
+    if (err instanceof Error && err.message === "insufficient_balance") return "insufficient_balance";
+    if (isUniqueConstraintError(err)) return "already_bet";
+    return "error";
+  }
+}
+
+/** Message envoyé dans le chat après une tentative de "!bet <joueur>", quel que soit le résultat. */
+function formatBetResultMessage(displayName: string, entrantName: string, result: ChatBetResult): string {
+  switch (result) {
+    case "ok":
+      return `✅ @${displayName} pari enregistré sur ${entrantName} (${DEFAULT_CHAT_BET_STAKE} Ex).`;
+    case "insufficient_balance":
+      return `@${displayName} solde insuffisant (il faut ${DEFAULT_CHAT_BET_STAKE} Ex).`;
+    case "already_bet":
+      return `@${displayName} tu as déjà parié sur ce match.`;
+    case "preview_set":
+      return `@${displayName} ce match n'est pas encore prêt pour les paris, réessaie un peu plus tard.`;
+    case "error":
+      return `@${displayName} erreur lors de l'enregistrement du pari, réessaie.`;
+  }
 }
 
 /**
@@ -253,7 +293,16 @@ async function handleInvitationalBetCommand(
   target: string,
   event: { id: string; activeChatMatchId: string | null },
   chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
 ) {
+  const respond = async (
+    match: InvitationalMatch & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor },
+    chosen: InvitationalCompetitor,
+  ) => {
+    const result = await placeInvitationalChatBet(match, chosen, chatter);
+    await reply(broadcasterId, formatBetResultMessage(chatter.displayName, chosen.name, result));
+  };
+
   if (event.activeChatMatchId) {
     const activeMatch = await prisma.invitationalMatch.findUnique({
       where: { id: event.activeChatMatchId },
@@ -262,10 +311,9 @@ async function handleInvitationalBetCommand(
     if (activeMatch?.status === "OPEN" && activeMatch.competitorA && activeMatch.competitorB) {
       const chosen = matchInvitationalCompetitor(target, [activeMatch.competitorA, activeMatch.competitorB]);
       if (chosen) {
-        await placeInvitationalChatBet(
+        await respond(
           { ...activeMatch, competitorA: activeMatch.competitorA, competitorB: activeMatch.competitorB },
           chosen,
-          chatter,
         );
         return;
       }
@@ -289,10 +337,21 @@ async function handleInvitationalBetCommand(
     .filter((c): c is { match: (typeof openMatches)[number] & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor }; chosen: InvitationalCompetitor } => c !== null);
 
   // Comme pour les tournois classiques : le nom doit désigner un compétiteur
-  // dans exactement un match ouvert, sinon c'est ambigu (ou introuvable).
-  if (candidates.length !== 1) return;
+  // dans exactement un match ouvert, sinon c'est ambigu (ou introuvable) —
+  // désormais annoncé dans le chat plutôt que silencieusement ignoré.
+  if (candidates.length === 0) {
+    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${target}".`);
+    return;
+  }
+  if (candidates.length > 1) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${target}", précise le nom complet.`,
+    );
+    return;
+  }
 
-  await placeInvitationalChatBet(candidates[0].match, candidates[0].chosen, chatter);
+  await respond(candidates[0].match, candidates[0].chosen);
 }
 
 /**
@@ -306,7 +365,13 @@ async function handleBetCommand(
   target: string,
   tournament: { eventSlug: string; activeChatSetId: string | null },
   chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
 ) {
+  const respond = async (set: StartggSet, chosen: { id: string; name: string }) => {
+    const result = await placeChatBet(set, chosen, tournament.eventSlug, chatter);
+    await reply(broadcasterId, formatBetResultMessage(chatter.displayName, chosen.name, result));
+  };
+
   if (tournament.activeChatSetId) {
     let activeSet: StartggSet | null = null;
     try {
@@ -317,7 +382,7 @@ async function handleBetCommand(
     if (activeSet && activeSet.state === SET_STATE.NOT_STARTED) {
       const chosen = matchEntrant(target, openEntrants(activeSet));
       if (chosen) {
-        await placeChatBet(activeSet, chosen, tournament.eventSlug, chatter);
+        await respond(activeSet, chosen);
         return;
       }
     }
@@ -327,6 +392,7 @@ async function handleBetCommand(
   try {
     allSets = await getUpcomingSets(tournament.eventSlug);
   } catch {
+    await reply(broadcasterId, `@${chatter.displayName} impossible de récupérer les matchs, réessaie plus tard.`);
     return;
   }
 
@@ -339,10 +405,22 @@ async function handleBetCommand(
     .filter((c): c is { set: StartggSet; chosen: { id: string; name: string } } => c !== null);
 
   // Le nom doit désigner un joueur dans exactement un match ouvert, sinon
-  // c'est ambigu (ou introuvable) et on ignore silencieusement.
-  if (candidates.length !== 1) return;
+  // c'est ambigu (ou introuvable) — désormais annoncé dans le chat plutôt
+  // que silencieusement ignoré (impossible auparavant de distinguer "le
+  // message n'est jamais arrivé" de "le pari a échoué pour telle raison").
+  if (candidates.length === 0) {
+    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${target}".`);
+    return;
+  }
+  if (candidates.length > 1) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${target}", précise le nom complet.`,
+    );
+    return;
+  }
 
-  await placeChatBet(candidates[0].set, candidates[0].chosen, tournament.eventSlug, chatter);
+  await respond(candidates[0].set, candidates[0].chosen);
 }
 
 /** !bet top8 (alias !top8) — pari "Le Pari du Parry", répond dans le chat comme mvc/reset. */
@@ -688,7 +766,7 @@ export async function POST(request: Request) {
     // Invitational/Prestataire (pas de bracket start.gg) — seul le pari
     // classique "!bet <joueur>" s'y applique.
     if (invitationalEvent && betTarget !== null && !isParrySubCommand) {
-      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter);
+      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter, broadcasterId);
     } else if (isParrySubCommand) {
       await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
     }
@@ -702,7 +780,7 @@ export async function POST(request: Request) {
   } else if (betTarget !== null && isTop8Command(betTarget)) {
     await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
   } else if (betTarget !== null) {
-    await handleBetCommand(betTarget, tournament, chatter);
+    await handleBetCommand(betTarget, tournament, chatter, broadcasterId);
   } else if (top8Target !== null) {
     await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
   }
