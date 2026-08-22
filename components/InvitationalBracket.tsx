@@ -1,4 +1,5 @@
 import type { BracketColumnSide } from "@/lib/invitationalBracketTemplate";
+import { classifyRoundSide } from "@/lib/invitationalBracket";
 import BracketTree, { type BracketTreeColumn } from "@/components/BracketTree";
 
 export interface BracketCompetitor {
@@ -77,21 +78,10 @@ function MatchCard({ match }: { match: BracketMatch | null }) {
   );
 }
 
-/**
- * Un event "legacy" (pas de taille de bracket choisie) n'a pas de `side`
- * connu à l'avance — mais pour le mode régie (voir lib/tournamentRegie.ts),
- * le libellé de chaque colonne EST le vrai nom de round start.gg
- * ("Winners Round 1", "Losers Round 2", "Grand Final"...), qui suffit à
- * déduire le camp de façon fiable sans configuration supplémentaire.
- */
-function classifyLegacyColumnSide(label: string): "losers" | "winners" {
-  return /^losers?\b/i.test(label.trim()) ? "losers" : "winners";
-}
-
 function columnSide(column: BracketColumn): "losers" | "winners" {
   if (column.side === "losers") return "losers";
   if (column.side === "winners" || column.side === "final") return "winners";
-  return classifyLegacyColumnSide(column.label);
+  return classifyRoundSide(column.label);
 }
 
 function toTreeColumns(columns: BracketColumn[]): BracketTreeColumn<BracketMatch>[] {

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { InvitationalCompetitor, InvitationalMatch } from "@prisma/client";
 import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
@@ -14,6 +15,7 @@ import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
 import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
 import { INVITATIONAL_TEMPLATE_FILENAMES } from "@/lib/invitationalTemplates";
+import { classifyRoundSide } from "@/lib/invitationalBracket";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +45,54 @@ function TabLink({ eventId, tab, active, children }: { eventId: string; tab: Tab
   );
 }
 
+type MatchRow = InvitationalMatch & { competitorA: InvitationalCompetitor | null; competitorB: InvitationalCompetitor | null };
+
+/**
+ * Un round replié par défaut s'il est encore 100% "à déterminer" (aucun
+ * adversaire connu, pas encore ouvert/joué) — plutôt que d'encombrer
+ * l'écran sur un bracket à ~100 matchs très majoritairement TBD en début
+ * de tournoi.
+ */
+function RoundGroup({
+  groupLabel,
+  matches,
+  eventId,
+  showChatButton,
+  activeChatMatchId,
+  activeOverlayMatchId,
+  activeOverlayMatchSwapped,
+}: {
+  groupLabel: string;
+  matches: MatchRow[];
+  eventId: string;
+  showChatButton: boolean;
+  activeChatMatchId: string | null;
+  activeOverlayMatchId: string | null;
+  activeOverlayMatchSwapped: boolean;
+}) {
+  const readyCount = matches.filter((m) => m.status !== "NOT_OPEN" || m.competitorA || m.competitorB).length;
+  return (
+    <details open={readyCount > 0} className="flex flex-col gap-3">
+      <summary className="text-sm font-semibold cursor-pointer">
+        {groupLabel || "Matchs"} — {readyCount}/{matches.length} prêt{readyCount > 1 ? "s" : ""}
+      </summary>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {matches.map((m) => (
+          <InvitationalMatchRow
+            key={m.id}
+            match={m}
+            eventId={eventId}
+            showChatButton={showChatButton}
+            isActiveChatMatch={activeChatMatchId === m.id}
+            isActiveOverlayMatch={activeOverlayMatchId === m.id}
+            isActiveOverlayMatchSwapped={activeOverlayMatchSwapped}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default async function AdminInvitationalEventPage({
   params,
   searchParams,
@@ -64,18 +114,27 @@ export default async function AdminInvitationalEventPage({
     notFound();
   }
 
+  // orderIndex seul (pas groupLabel) : ordre chronologique réel du tournoi
+  // (premier match au dernier), pas un tri alphabétique des libellés de
+  // round — même bug de fond que celui corrigé pour le rendu de l'overlay
+  // bracket (voir buildInvitationalBracketColumns dans lib/invitationalBracket.ts).
   const matches = await prisma.invitationalMatch.findMany({
     where: { eventId },
     include: { competitorA: true, competitorB: true },
-    orderBy: [{ groupLabel: "asc" }, { orderIndex: "asc" }],
+    orderBy: { orderIndex: "asc" },
   });
 
+  // Regroupées par libellé de round, dans l'ordre de première apparition
+  // (donc déjà chronologique, matches triés par orderIndex ci-dessus) — un
+  // Map JS préserve l'ordre d'insertion de ses clés à l'itération.
   const groups = new Map<string, typeof matches>();
   for (const match of matches) {
     const key = match.groupLabel ?? "";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(match);
   }
+  const winnerGroups = Array.from(groups.entries()).filter(([label]) => classifyRoundSide(label || "Matchs") === "winners");
+  const loserGroups = Array.from(groups.entries()).filter(([label]) => classifyRoundSide(label || "Matchs") === "losers");
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,37 +184,62 @@ export default async function AdminInvitationalEventPage({
             <p className="text-sm" style={{ color: "var(--muted)" }}>
               Aucun match importé pour cet event.
             </p>
+          ) : loserGroups.length === 0 ? (
+            // Simple élimination (ou format sans camp perdant) : pas de
+            // séparation Winner/Loser Side, juste les rounds à la suite.
+            winnerGroups.map(([groupLabel, groupMatches]) => (
+              <RoundGroup
+                key={groupLabel || "__default"}
+                groupLabel={groupLabel}
+                matches={groupMatches}
+                eventId={event.id}
+                showChatButton={Boolean(event.twitchChannel)}
+                activeChatMatchId={event.activeChatMatchId}
+                activeOverlayMatchId={event.activeOverlayMatchId}
+                activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+              />
+            ))
           ) : (
-            Array.from(groups.entries()).map(([groupLabel, groupMatches]) => {
-              // "Prêt" = au moins un adversaire déjà déterminé (ou déjà
-              // ouvert/joué) — un round encore 100% "À déterminer" des deux
-              // côtés est replié par défaut plutôt que d'encombrer l'écran
-              // (repéré sur un bracket à 97 matchs, la plupart encore TBD).
-              const readyCount = groupMatches.filter(
-                (m) => m.status !== "NOT_OPEN" || m.competitorA || m.competitorB,
-              ).length;
-              return (
-                <details key={groupLabel || "__default"} open={readyCount > 0} className="flex flex-col gap-3">
-                  <summary className="text-sm font-semibold cursor-pointer">
-                    {groupLabel || "Matchs"} — {readyCount}/{groupMatches.length} prêt
-                    {readyCount > 1 ? "s" : ""}
-                  </summary>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    {groupMatches.map((m) => (
-                      <InvitationalMatchRow
-                        key={m.id}
-                        match={m}
-                        eventId={event.id}
-                        showChatButton={Boolean(event.twitchChannel)}
-                        isActiveChatMatch={event.activeChatMatchId === m.id}
-                        isActiveOverlayMatch={event.activeOverlayMatchId === m.id}
-                        isActiveOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-                      />
-                    ))}
-                  </div>
-                </details>
-              );
-            })
+            <>
+              <details open className="flex flex-col gap-3">
+                <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
+                  Winner Side
+                </summary>
+                <div className="flex flex-col gap-3">
+                  {winnerGroups.map(([groupLabel, groupMatches]) => (
+                    <RoundGroup
+                      key={groupLabel || "__default"}
+                      groupLabel={groupLabel}
+                      matches={groupMatches}
+                      eventId={event.id}
+                      showChatButton={Boolean(event.twitchChannel)}
+                      activeChatMatchId={event.activeChatMatchId}
+                      activeOverlayMatchId={event.activeOverlayMatchId}
+                      activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+                    />
+                  ))}
+                </div>
+              </details>
+              <details open className="flex flex-col gap-3">
+                <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
+                  Loser Side
+                </summary>
+                <div className="flex flex-col gap-3">
+                  {loserGroups.map(([groupLabel, groupMatches]) => (
+                    <RoundGroup
+                      key={groupLabel || "__default"}
+                      groupLabel={groupLabel}
+                      matches={groupMatches}
+                      eventId={event.id}
+                      showChatButton={Boolean(event.twitchChannel)}
+                      activeChatMatchId={event.activeChatMatchId}
+                      activeOverlayMatchId={event.activeOverlayMatchId}
+                      activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+                    />
+                  ))}
+                </div>
+              </details>
+            </>
           )}
         </>
       ) : (

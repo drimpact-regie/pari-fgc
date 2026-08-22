@@ -36,6 +36,20 @@ export interface BracketColumn {
   matches: InvitationalBracketMatch[];
 }
 
+/**
+ * Déduit le camp (vainqueurs/perdants) d'un round à partir de son libellé —
+ * un event "legacy" (voir components/InvitationalBracket.tsx) n'a pas de
+ * `side` connu à l'avance, mais pour le mode régie (lib/tournamentRegie.ts),
+ * le libellé EST le vrai nom de round start.gg ("Winners Round 1", "Losers
+ * Round 2", "Grand Final"...), qui suffit à classer sans configuration
+ * supplémentaire. "Grand Final"/"Grand Final Reset" tombent côté "winners"
+ * (convention : affichés à la suite du camp des vainqueurs, voir
+ * components/InvitationalBracket.tsx).
+ */
+export function classifyRoundSide(label: string): "losers" | "winners" {
+  return /^losers?\b/i.test(label.trim()) ? "losers" : "winners";
+}
+
 export function buildInvitationalBracketColumns(matches: InvitationalBracketMatch[]): BracketColumn[] {
   const sorted = [...matches].sort((a, b) => a.orderIndex - b.orderIndex);
 
