@@ -778,6 +778,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Twitch livre en "au moins une fois" : la même notification (même
+  // Twitch-Eventsub-Message-Id) peut arriver plusieurs fois — sans ça, un
+  // même "!bet" pouvait être traité deux fois (la seconde tentative
+  // échouant silencieusement grâce à la contrainte anti-doublon sur Bet,
+  // mais avec un message "tu as déjà parié" confus juste après le message
+  // de succès). Le create() échoue sur une violation de contrainte unique
+  // si ce messageId a déjà été vu — traité comme "déjà traité", pas comme
+  // une erreur.
+  const alreadyProcessed = await prisma.processedWebhookMessage
+    .create({ data: { messageId } })
+    .then(() => false)
+    .catch(() => true);
+  if (alreadyProcessed) {
+    return NextResponse.json({ ok: true });
+  }
+
   const event = body.event as ChatMessageEvent;
   const text = event.message.text;
   const broadcasterId = event.broadcaster_user_id;

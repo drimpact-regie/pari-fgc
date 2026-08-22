@@ -351,6 +351,12 @@ export async function sendChatMessage(params: {
   const bot = await getValidBotToken();
   if (!bot) return;
 
+  // Le compte "bot" est aujourd'hui le compte Twitch personnel de l'admin
+  // qui l'a connecté (voir /api/admin/twitch/connect) — un message envoyé
+  // par le bot est donc visuellement indiscernable d'un message tapé à la
+  // main par ce même admin dans le chat. Préfixé pour lever l'ambiguïté.
+  const prefixedMessage = `Bot : "${params.message}"`;
+
   await fetch(`${TWITCH_API_URL}/chat/messages`, {
     method: "POST",
     headers: {
@@ -361,7 +367,7 @@ export async function sendChatMessage(params: {
     body: JSON.stringify({
       broadcaster_id: params.broadcasterId,
       sender_id: bot.userId,
-      message: params.message,
+      message: prefixedMessage,
     }),
   }).catch(() => undefined);
 }
