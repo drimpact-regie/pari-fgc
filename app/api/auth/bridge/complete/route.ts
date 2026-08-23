@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { SESSION_COOKIE_NAME, consumeBridgeToken, encodeSessionToken } from "@/lib/ssoBridge";
+import { requestOrigin } from "@/lib/domainRouting";
 
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
   const next = url.searchParams.get("next") ?? "/";
-  const destination = new URL(next, url.origin);
+  const destination = new URL(next, requestOrigin(request));
 
   if (!token) {
     return NextResponse.redirect(destination);

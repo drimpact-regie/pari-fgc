@@ -6,6 +6,7 @@ import {
   crossDomainHref,
   domainOfHost,
   isDevOrPreviewHost,
+  requestOrigin,
 } from "./domainRouting";
 
 describe("classifyPath", () => {
@@ -108,6 +109,29 @@ describe("bridgeHref", () => {
 
   it("never bridges the homepage (classifyPath returns null for it)", () => {
     expect(bridgeHref("/", "www.impactobet.fr")).toBe("/");
+  });
+});
+
+describe("requestOrigin", () => {
+  // Une route API qui construit son redirect_uri OAuth (ou toute URL
+  // absolue auto-référentielle) à partir de `new URL(request.url).origin`
+  // peut recevoir, sur Vercel avec plusieurs domaines custom sur un même
+  // projet, l'adresse de déploiement plutôt que le domaine réellement
+  // visité — d'où ce helper, qui lit directement les en-têtes de la
+  // requête plutôt que le champ `.url` de l'objet Request (voir son
+  // commentaire dans lib/domainRouting.ts).
+  it("prefers X-Forwarded-Host (set by Vercel's proxy) over the Host header", () => {
+    const request = new Request("https://deployment-internal.vercel.app/api/twitch/link/connect", {
+      headers: { host: "deployment-internal.vercel.app", "x-forwarded-host": "www.impactobot.fr" },
+    });
+    expect(requestOrigin(request)).toBe("https://www.impactobot.fr");
+  });
+
+  it("falls back to the Host header when X-Forwarded-Host is absent", () => {
+    const request = new Request("https://ignored.example/api/twitch/link/connect", {
+      headers: { host: "www.impactobet.fr" },
+    });
+    expect(requestOrigin(request)).toBe("https://www.impactobet.fr");
   });
 });
 

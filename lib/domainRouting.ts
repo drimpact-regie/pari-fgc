@@ -98,6 +98,26 @@ export function canonicalHostFor(domain: SiteDomain): string {
 }
 
 /**
+ * Origine (protocole + host) fiable de la requête en cours, à utiliser pour
+ * construire tout redirect_uri OAuth Twitch ou toute URL absolue
+ * auto-référentielle depuis une route API. `new URL(request.url).origin`
+ * (l'approche naïve, encore utilisée par endroits) peut refléter, dans une
+ * route handler Vercel avec plusieurs domaines custom sur un même projet,
+ * l'adresse de déploiement plutôt que le domaine RÉELLEMENT visité par le
+ * navigateur — exactement le même piège documenté pour req.nextUrl.hostname
+ * en middleware (voir proxy.ts, qui a dû s'en écarter pour la même raison).
+ * Seul l'en-tête Host (ou X-Forwarded-Host derrière le proxy de Vercel)
+ * reflète fidèlement le domaine visité — c'est ce qui a fait échouer la
+ * liaison de compte Twitch depuis impactobot.fr malgré un routage déjà
+ * correct : le domaine était bon, mais le redirect_uri envoyé à Twitch ne
+ * l'était pas.
+ */
+export function requestOrigin(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  return `https://${host}`;
+}
+
+/**
  * Construit l'URL vers `path`, en passant par le pont SSO
  * (/api/auth/bridge/start) si `targetDomain` diffère du domaine de
  * `currentHost` — pour que tous les liens internes potentiellement

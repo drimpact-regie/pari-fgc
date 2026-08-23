@@ -9,6 +9,7 @@ import {
   getValidBotToken,
   TwitchApiError,
 } from "@/lib/twitch";
+import { requestOrigin } from "@/lib/domainRouting";
 
 /**
  * Active le pari via chat pour ce tournoi : crée l'abonnement EventSub
@@ -62,8 +63,7 @@ export async function POST(
       await deleteSubscription(tournament.twitchSubscriptionId);
     }
 
-    const url = new URL(request.url);
-    const callbackUrl = `${url.origin}/api/twitch/webhook`;
+    const callbackUrl = `${requestOrigin(request)}/api/twitch/webhook`;
 
     const subscriptionId = await createChatSubscription({
       broadcasterUserId: broadcaster.id,

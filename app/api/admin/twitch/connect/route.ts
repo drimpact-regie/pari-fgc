@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
+import { requestOrigin } from "@/lib/domainRouting";
 
 /**
  * Démarre le flux OAuth Twitch pour le compte "bot" utilisé à lire le chat.
@@ -27,8 +28,8 @@ export async function GET(request: Request) {
     );
   }
 
-  const url = new URL(request.url);
-  const redirectUri = `${url.origin}/api/admin/twitch/callback`;
+  const origin = requestOrigin(request);
+  const redirectUri = `${origin}/api/admin/twitch/callback`;
 
   const authorizeUrl = new URL("https://id.twitch.tv/oauth2/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);

@@ -4,17 +4,19 @@ import { cookies } from "next/headers";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { exchangeUserAuthCode, TwitchApiError } from "@/lib/twitch";
+import { requestOrigin } from "@/lib/domainRouting";
 
 export async function GET(request: Request) {
   const session = await auth();
   const url = new URL(request.url);
+  const origin = requestOrigin(request);
 
   if (!session?.user) {
-    return NextResponse.redirect(new URL("/login", url.origin));
+    return NextResponse.redirect(new URL("/login", origin));
   }
 
   function redirectTo(destination: string) {
-    const res = NextResponse.redirect(new URL(destination, url.origin));
+    const res = NextResponse.redirect(new URL(destination, origin));
     res.cookies.delete("twitch_link_state");
     return res;
   }
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const redirectUri = `${url.origin}/api/twitch/link/callback`;
+  const redirectUri = `${origin}/api/twitch/link/callback`;
 
   let twitchUser;
   try {

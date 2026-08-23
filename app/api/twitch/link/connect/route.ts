@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 
 import { auth } from "@/lib/auth";
+import { requestOrigin } from "@/lib/domainRouting";
 
 /**
  * Démarre le flux OAuth Twitch pour lier le compte Twitch de l'utilisateur
@@ -14,21 +15,21 @@ import { auth } from "@/lib/auth";
  */
 export async function GET(request: Request) {
   const session = await auth();
-  const url = new URL(request.url);
+  const origin = requestOrigin(request);
 
   if (!session?.user) {
-    return NextResponse.redirect(new URL("/login?from=%2Faccount", url.origin));
+    return NextResponse.redirect(new URL("/login?from=%2Faccount", origin));
   }
 
   const clientId = process.env.TWITCH_CLIENT_ID;
   if (!clientId) {
     return NextResponse.redirect(
-      new URL("/account?linkError=TWITCH_CLIENT_ID%20non%20configur%C3%A9.", url.origin),
+      new URL("/account?linkError=TWITCH_CLIENT_ID%20non%20configur%C3%A9.", origin),
     );
   }
 
   const state = randomBytes(16).toString("hex");
-  const redirectUri = `${url.origin}/api/twitch/link/callback`;
+  const redirectUri = `${origin}/api/twitch/link/callback`;
 
   const authorizeUrl = new URL("https://id.twitch.tv/oauth2/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);

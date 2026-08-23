@@ -3,12 +3,14 @@ import { cookies } from "next/headers";
 
 import { prisma } from "@/lib/prisma";
 import { exchangeUserAuthCode, TwitchApiError } from "@/lib/twitch";
+import { requestOrigin } from "@/lib/domainRouting";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  const origin = requestOrigin(request);
 
   function redirectTo(destination: string) {
-    const res = NextResponse.redirect(new URL(destination, url.origin));
+    const res = NextResponse.redirect(new URL(destination, origin));
     res.cookies.delete("streamer_authorize_state");
     return res;
   }
@@ -30,7 +32,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const redirectUri = `${url.origin}/api/streamer/authorize/callback`;
+  const redirectUri = `${origin}/api/streamer/authorize/callback`;
 
   let twitchUser;
   try {
