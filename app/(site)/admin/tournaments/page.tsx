@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { listTournaments } from "@/lib/tournaments";
 import { getEventInfo } from "@/lib/startgg";
 import AddTournamentForm from "@/components/AddTournamentForm";
+import BulkImportTournamentsForm from "@/components/BulkImportTournamentsForm";
 import SyncResultsButton from "@/components/SyncResultsButton";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +96,7 @@ export default async function AdminTournamentsPage({
       </div>
 
       <AddTournamentForm />
+      <BulkImportTournamentsForm />
     </div>
   );
 }

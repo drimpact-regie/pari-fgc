@@ -188,6 +188,16 @@ export interface StartggEventInfo {
   videogameName: string | null;
 }
 
+/** Un jeu (event) au sein d'un tournoi start.gg multi-jeux — voir getTournamentEvents. */
+export interface StartggTournamentEvent {
+  id: string;
+  name: string;
+  /** Slug complet "tournament/xxx/event/yyy", prêt à stocker dans Tournament.eventSlug. */
+  eventSlug: string;
+  videogameName: string | null;
+  numEntrants: number | null;
+}
+
 // --- Requêtes GraphQL --------------------------------------------------------
 
 const EVENT_INFO_QUERY = /* GraphQL */ `
@@ -510,6 +520,61 @@ export async function getEventInfo(
     tournamentName: data.event.tournament?.name ?? "",
     bannerUrl: banner?.url ?? null,
     videogameName: data.event.videogame?.name ?? null,
+  };
+}
+
+const TOURNAMENT_EVENTS_QUERY = /* GraphQL */ `
+  query TournamentEvents($tournamentSlug: String!) {
+    tournament(slug: $tournamentSlug) {
+      name
+      events {
+        id
+        name
+        slug
+        numEntrants
+        videogame {
+          name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Liste tous les jeux (events) d'un tournoi start.gg multi-jeux — pour
+ * l'import groupé côté admin (un gros tournoi type "Ultimate Fighting
+ * Arena" peut contenir une quinzaine de jeux, chacun devenant un
+ * Tournament distinct chez nous, voir /api/admin/tournaments/bulk-import).
+ */
+export async function getTournamentEvents(
+  tournamentSlug: string,
+): Promise<{ tournamentName: string; events: StartggTournamentEvent[] } | null> {
+  const data = await callStartGG<{
+    tournament: {
+      name: string;
+      events:
+        | {
+            id: string;
+            name: string;
+            slug: string;
+            numEntrants: number | null;
+            videogame: { name: string } | null;
+          }[]
+        | null;
+    } | null;
+  }>(TOURNAMENT_EVENTS_QUERY, { tournamentSlug });
+
+  if (!data.tournament) return null;
+
+  return {
+    tournamentName: data.tournament.name,
+    events: (data.tournament.events ?? []).map((event) => ({
+      id: event.id,
+      name: event.name,
+      eventSlug: event.slug,
+      videogameName: event.videogame?.name ?? null,
+      numEntrants: event.numEntrants,
+    })),
   };
 }
 
