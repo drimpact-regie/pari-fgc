@@ -186,6 +186,8 @@ export interface StartggEventInfo {
   bannerUrl: string | null;
   /** Nom du jeu de l'event, sert à filtrer le roster de personnages (MVC). */
   videogameName: string | null;
+  /** Logo/jaquette du jeu (côté start.gg), pour distinguer les jeux d'un même tournoi multi-jeux à la bannière partagée. */
+  videogameImageUrl: string | null;
 }
 
 /** Un jeu (event) au sein d'un tournoi start.gg multi-jeux — voir getTournamentEvents. */
@@ -209,6 +211,10 @@ const EVENT_INFO_QUERY = /* GraphQL */ `
       numEntrants
       videogame {
         name
+        images {
+          url
+          type
+        }
       }
       tournament {
         name
@@ -499,7 +505,10 @@ export async function getEventInfo(
       name: string;
       state: string | null;
       numEntrants: number | null;
-      videogame: { name: string } | null;
+      videogame: {
+        name: string;
+        images: { url: string; type: string | null }[] | null;
+      } | null;
       tournament: {
         name: string;
         images: { url: string; type: string | null }[] | null;
@@ -512,6 +521,12 @@ export async function getEventInfo(
   const images = data.event.tournament?.images ?? [];
   const banner = images.find((img) => img.type === "banner") ?? images[0] ?? null;
 
+  // Pas de type d'image particulier connu/vérifié pour un jeu (contrairement
+  // à "banner" pour le tournoi, confirmé via plusieurs events publics) — on
+  // prend simplement la première disponible.
+  const videogameImages = data.event.videogame?.images ?? [];
+  const videogameImage = videogameImages[0] ?? null;
+
   return {
     id: data.event.id,
     name: data.event.name,
@@ -520,6 +535,7 @@ export async function getEventInfo(
     tournamentName: data.event.tournament?.name ?? "",
     bannerUrl: banner?.url ?? null,
     videogameName: data.event.videogame?.name ?? null,
+    videogameImageUrl: videogameImage?.url ?? null,
   };
 }
 
