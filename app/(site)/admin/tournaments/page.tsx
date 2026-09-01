@@ -1,57 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { listTournaments } from "@/lib/tournaments";
-import { getEventInfo, tournamentSlugFromEventSlug } from "@/lib/startgg";
+import { listTournaments, groupTournamentsForDisplay } from "@/lib/tournaments";
 import AddTournamentForm from "@/components/AddTournamentForm";
 import BulkImportTournamentsForm from "@/components/BulkImportTournamentsForm";
 import SyncResultsButton from "@/components/SyncResultsButton";
+import TournamentGroupList from "@/components/TournamentGroupList";
 
 export const dynamic = "force-dynamic";
-
-interface TournamentCard {
-  id: string;
-  name: string;
-  bannerUrl: string | null;
-  videogameImageUrl: string | null;
-}
-
-interface TournamentGroup {
-  rootSlug: string;
-  label: string;
-  bannerUrl: string | null;
-  cards: TournamentCard[];
-}
-
-function TournamentBannerCard({ tournament }: { tournament: TournamentCard }) {
-  return (
-    <Link
-      href={`/admin/tournaments/${tournament.id}/regie`}
-      className="card relative flex items-end overflow-hidden hover:opacity-90"
-      style={{
-        height: "8rem",
-        backgroundImage: tournament.bannerUrl
-          ? `linear-gradient(rgba(11,13,18,0.15), rgba(11,13,18,0.9)), url(${tournament.bannerUrl})`
-          : undefined,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }}
-    >
-      {tournament.videogameImageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={tournament.videogameImageUrl}
-          alt=""
-          className="absolute top-3 right-3 rounded-md object-cover"
-          style={{ width: "3rem", height: "3rem", boxShadow: "0 0 0 2px rgba(255,255,255,0.2)" }}
-        />
-      )}
-      <span className="font-semibold text-lg p-4 drop-shadow">{tournament.name}</span>
-    </Link>
-  );
-}
 
 /**
  * Liste des tournois façon bannières (même style que l'accueil parieur,
@@ -74,39 +31,7 @@ export default async function AdminTournamentsPage({
   const tournaments = await listTournaments();
   const botToken = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
   const sorted = [...tournaments].reverse(); // plus récent d'abord
-
-  const eventInfos = await Promise.all(
-    sorted.map((t) => getEventInfo(t.eventSlug).catch(() => null)),
-  );
-
-  // Regroupe les tournois qui partagent la même racine start.gg (un tournoi
-  // multi-jeux type "Ultimate Fighting Arena" importe chaque jeu comme un
-  // Tournament séparé, voir BulkImportTournamentsForm — mais ils restent
-  // rattachés au même événement "parent") — dans l'ordre de première
-  // apparition, donc du groupe le plus récent au plus ancien puisque
-  // `sorted` est déjà trié plus-récent-d'abord.
-  const groups: TournamentGroup[] = [];
-  const groupByRoot = new Map<string, TournamentGroup>();
-  for (let i = 0; i < sorted.length; i++) {
-    const rootSlug = tournamentSlugFromEventSlug(sorted[i].eventSlug);
-    let group = groupByRoot.get(rootSlug);
-    if (!group) {
-      group = {
-        rootSlug,
-        label: eventInfos[i]?.tournamentName || sorted[i].name,
-        bannerUrl: eventInfos[i]?.bannerUrl ?? null,
-        cards: [],
-      };
-      groupByRoot.set(rootSlug, group);
-      groups.push(group);
-    }
-    group.cards.push({
-      id: sorted[i].id,
-      name: sorted[i].name,
-      bannerUrl: eventInfos[i]?.bannerUrl ?? null,
-      videogameImageUrl: eventInfos[i]?.videogameImageUrl ?? null,
-    });
-  }
+  const groups = await groupTournamentsForDisplay(sorted);
 
   return (
     <div className="flex flex-col gap-4">
@@ -139,36 +64,10 @@ export default async function AdminTournamentsPage({
         </a>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {groups.map((group) =>
-          group.cards.length === 1 ? (
-            <TournamentBannerCard key={group.rootSlug} tournament={group.cards[0]} />
-          ) : (
-            <details key={group.rootSlug} className="card overflow-hidden" open>
-              <summary
-                className="px-4 py-3 cursor-pointer font-semibold text-lg flex items-center justify-between gap-3"
-                style={{
-                  backgroundImage: group.bannerUrl
-                    ? `linear-gradient(rgba(11,13,18,0.55), rgba(11,13,18,0.85)), url(${group.bannerUrl})`
-                    : undefined,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                }}
-              >
-                <span className="drop-shadow">{group.label}</span>
-                <span className="text-xs font-normal whitespace-nowrap" style={{ color: "var(--muted)" }}>
-                  {group.cards.length} jeux
-                </span>
-              </summary>
-              <div className="flex flex-col gap-3 p-3">
-                {group.cards.map((card) => (
-                  <TournamentBannerCard key={card.id} tournament={card} />
-                ))}
-              </div>
-            </details>
-          ),
-        )}
-      </div>
+      <TournamentGroupList
+        groups={groups}
+        hrefForTournament={(id) => `/admin/tournaments/${id}/regie`}
+      />
 
       <AddTournamentForm />
       <BulkImportTournamentsForm />
