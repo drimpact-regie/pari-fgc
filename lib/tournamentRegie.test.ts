@@ -197,6 +197,29 @@ describe("regieOverallFormat", () => {
 
     expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
   });
+
+  it("falls back to the declared phase types when the tournament hasn't started yet (no phase has any set)", () => {
+    // Activation avant le début du tournoi : aucun match seedé nulle part,
+    // mais le bracketType de l'étape est déjà connu côté start.gg — pas de
+    // raison de retomber sur LIST faute de mieux, ce qui bloquerait le
+    // premier resync une fois le tournoi réellement lancé (changement de
+    // format refusé sur un event déjà actif).
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [{ phase: bracket, sets: [] }];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("still falls back to LIST when nothing has started AND declared phase types already differ", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [] },
+      { phase: bracket, sets: [] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("LIST");
+  });
 });
 
 describe("regieStartggErrorMessage", () => {

@@ -163,12 +163,22 @@ export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): P
  * rendu "arbre" unique n'a de sens pour un mélange des deux, mais la liste
  * de matchs, le classement chronologique et la désignation du match actif à
  * l'overlay restent, eux, disponibles quel que soit le format.
+ *
+ * Si AUCUNE étape n'a encore de match généré (activation avant le début du
+ * tournoi, voir buildRegieImport ci-dessous qui l'autorise désormais), on se
+ * base plutôt sur TOUTES les étapes déclarées — le bracketType d'une étape
+ * est connu côté start.gg dès sa création, avant même que ses matchs soient
+ * seedés. Sans ça, un event activé à l'avance retombait systématiquement sur
+ * "LIST" par défaut, et resynchroniser une fois le tournoi réellement lancé
+ * (où le vrai format serait alors détecté) échouait : un changement de
+ * format sur un event déjà actif est refusé par importMatchesIntoInvitationalEvent.
  */
 export function regieOverallFormat(phasesWithSets: RegiePhaseSets[]): InvitationalFormat {
   const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
-  const bracketTypes = new Set(withMatches.map((p) => p.phase.bracketType));
+  const relevantPhases = withMatches.length > 0 ? withMatches : phasesWithSets;
+  const bracketTypes = new Set(relevantPhases.map((p) => p.phase.bracketType));
   if (bracketTypes.size === 1) {
-    return mapBracketTypeToInvitationalFormat(withMatches[0].phase.bracketType);
+    return mapBracketTypeToInvitationalFormat(relevantPhases[0].phase.bracketType);
   }
   return "LIST";
 }
@@ -233,17 +243,15 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
     sets: allSets.filter((s) => s.phaseId === phase.id),
   }));
 
-  const matches = buildRegieMatchesFromPhases(phasesWithSets);
-  if (matches.length === 0) {
-    throw new RegieError(
-      "Aucun match généré côté start.gg pour l'instant, sur aucune étape de ce tournoi (poules ou bracket) — " +
-        "le tournoi n'a probablement pas encore démarré ou son bracket n'a pas encore été seedé. Réessaie une fois lancé sur start.gg.",
-    );
-  }
-
+  // Un tournoi pas encore démarré (aucun match seedé sur aucune étape) est
+  // volontairement accepté plutôt que rejeté : le régisseur peut vouloir
+  // activer le mode régie à l'avance (chaîne Twitch, réglages d'overlay...)
+  // puis resynchroniser une fois le bracket réellement généré sur start.gg —
+  // createInvitationalEvent gère déjà un event "coquille" sans matchs (voir
+  // aussi createEmptyInvitationalEvent, même principe côté self-service).
   return {
     format: regieOverallFormat(phasesWithSets),
-    matches,
+    matches: buildRegieMatchesFromPhases(phasesWithSets),
   };
 }
 
