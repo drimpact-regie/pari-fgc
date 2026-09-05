@@ -783,9 +783,7 @@ function normalizeStanding(standing: RawStartggStanding): StartggStanding {
   return { placement: standing.placement, entrant: normalizeEntrant(standing.entrant) };
 }
 
-export async function getUpcomingSets(
-  eventSlug: string = STARTGG_EVENT_SLUG,
-): Promise<StartggSet[]> {
+async function fetchUpcomingSetsRaw(eventSlug: string): Promise<StartggSet[]> {
   const { nodes } = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
@@ -796,11 +794,39 @@ export async function getUpcomingSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
+  return nodes.map(normalizeSet);
+}
+
+export async function getUpcomingSets(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggSet[]> {
+  const sets = await fetchUpcomingSetsRaw(eventSlug);
   // Exclus dès la source les matchs "prévisionnels" (voir isPreviewSetId) :
   // ni la sidebar, ni la liste des rounds, ni le pari chat ne doivent
   // jamais les proposer comme pariables, sous peine de créer des paris
   // orphelins qui ne pourront jamais se résoudre.
-  return nodes.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
+  return sets.filter((set) => !isPreviewSetId(set.id));
+}
+
+/**
+ * Comme getUpcomingSets, mais SANS exclure les sets "prévisionnels" (voir
+ * isPreviewSetId) — réservé au mode régie (lib/tournamentRegie.ts), qui a
+ * besoin du seeding déjà connu même pour un bracket pas encore "démarré"
+ * côté start.gg : tant que l'organisateur n'a pas cliqué sur "Start" sur
+ * start.gg, TOUS les sets d'une étape — y compris le Round 1, déjà
+ * entièrement seedé avec de vrais entrants — sont renvoyés avec un id
+ * "preview_", ce qui faisait disparaître silencieusement toute la phase de
+ * l'import régie. Sans risque ici : le mode régie ne résout jamais un match
+ * automatiquement depuis l'id start.gg d'origine (résolution manuelle par
+ * l'admin, voir InvitationalMatchRow), contrairement au pari classique — un
+ * id "preview_" qui change une fois le bracket réellement lancé sera
+ * simplement re-matché par round/position au prochain resync.
+ * NE JAMAIS utiliser pour une fonctionnalité de pari.
+ */
+export async function getUpcomingSetsIncludingPreviews(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggSet[]> {
+  return fetchUpcomingSetsRaw(eventSlug);
 }
 
 /**

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import {
   getCompletedSets,
   getEventPhases,
-  getUpcomingSets,
+  getUpcomingSetsIncludingPreviews,
   StartggApiError,
   type StartggPhase,
   type StartggSet,
@@ -128,13 +128,26 @@ export interface RegiePhaseSets {
  * bracket scindé en plusieurs étapes de taille décroissante) en une seule
  * liste de matchs pour le mode régie — plutôt que la seule dernière étape
  * (l'ancien comportement se limitait de fait au bracket final, "Top 8" côté
- * utilisateur). `buildRegieMatchesFromSets` se réutilise tel quel par étape :
- * son filtre "grand final"/round négatif ne matche jamais rien pour une
- * étape de poules (ROUND_ROBIN/SWISS), qui se réduit alors naturellement à
- * un simple tri par round croissant — pas besoin d'une fonction séparée.
+ * utilisateur). `buildRegieMatchesFromSets` se réutilise tel quel par étape
+ * (et par poule, voir ci-dessous) : son filtre "grand final"/round négatif
+ * ne matche jamais rien pour une étape de poules (ROUND_ROBIN/SWISS), qui se
+ * réduit alors naturellement à un simple tri par round croissant — pas
+ * besoin d'une fonction séparée.
+ *
+ * À l'intérieur d'une même étape, plusieurs poules PARALLÈLES peuvent
+ * partager le même `phaseId` (ex. "Bracket" scindé en "Pool D1"/"Pool D2",
+ * chacune son propre bracket indépendant jusqu'à un cutoff commun vers
+ * l'étape suivante — voir StartggSet.poolLabel) : sans les séparer, leurs
+ * rounds (round=1, "Winners Round 1"...) se confondraient en un seul groupe
+ * mélangeant les deux poules. Les sets d'une même étape sont donc d'abord
+ * éclatés par poolLabel (dans l'ordre de première apparition) avant d'être
+ * passés à buildRegieMatchesFromSets, puis recombinés.
+ *
  * Les libellés de round sont préfixés par le nom de l'étape UNIQUEMENT s'il
- * y a plusieurs étapes avec des matchs (sinon comportement inchangé), pour
- * distinguer par exemple "Poules — Round 1" de "Bracket — Round 1".
+ * y a plusieurs étapes avec des matchs, et par la poule UNIQUEMENT s'il y en
+ * a plusieurs au sein d'une étape (sinon comportement inchangé) — pour
+ * distinguer par exemple "Poules — Round 1" de "Bracket — Round 1", ou
+ * "Poule D1 — Winners Round 1" de "Poule D2 — Winners Round 1".
  */
 export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): ParsedMatch[] {
   const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
@@ -143,12 +156,33 @@ export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): P
   let globalIndex = 0;
   const allMatches: ParsedMatch[] = [];
   for (const { phase, sets } of withMatches) {
-    for (const match of buildRegieMatchesFromSets(sets)) {
-      allMatches.push({
-        ...match,
-        orderIndex: globalIndex++,
-        groupLabel: multiplePhases && match.groupLabel ? `${phase.name} — ${match.groupLabel}` : match.groupLabel,
-      });
+    const poolLabels = Array.from(
+      new Set(sets.map((s) => s.poolLabel).filter((label): label is string => Boolean(label))),
+    );
+    const multiplePools = poolLabels.length > 1;
+    const poolBuckets = multiplePools
+      ? [
+          ...poolLabels.map((label) => ({ label, sets: sets.filter((s) => s.poolLabel === label) })),
+          // Un set d'étape sans poule (ex. une éventuelle Grand Final commune
+          // aux poules) ne doit pas disparaître silencieusement.
+          ...(sets.some((s) => !s.poolLabel) ? [{ label: null, sets: sets.filter((s) => !s.poolLabel) }] : []),
+        ]
+      : [{ label: null as string | null, sets }];
+
+    for (const { label: poolLabel, sets: poolSets } of poolBuckets) {
+      for (const match of buildRegieMatchesFromSets(poolSets)) {
+        const prefixParts = [multiplePhases ? phase.name : null, poolLabel ? `Poule ${poolLabel}` : null].filter(
+          (part): part is string => Boolean(part),
+        );
+        allMatches.push({
+          ...match,
+          orderIndex: globalIndex++,
+          groupLabel:
+            prefixParts.length > 0 && match.groupLabel
+              ? `${prefixParts.join(" — ")} — ${match.groupLabel}`
+              : match.groupLabel,
+        });
+      }
     }
   }
   return allMatches;
@@ -231,7 +265,12 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
     // envoyées à start.gg pour un import qui n'est de toute façon pas
     // sensible au temps (action ponctuelle d'activation, pas un chargement
     // de page utilisateur).
-    const upcoming = await getUpcomingSets(eventSlug);
+    // ...IncludingPreviews (pas getUpcomingSets) : tant que l'organisateur
+    // n'a pas lancé le bracket sur start.gg, TOUS ses sets — y compris un
+    // Round 1 déjà entièrement seedé — sont renvoyés en "preview_", qui
+    // sinon disparaissent silencieusement de l'import régie (voir la
+    // documentation de getUpcomingSetsIncludingPreviews).
+    const upcoming = await getUpcomingSetsIncludingPreviews(eventSlug);
     const completed = await getCompletedSets(eventSlug);
     allSets = [...upcoming, ...completed];
   } catch (err) {

@@ -155,6 +155,62 @@ describe("buildRegieMatchesFromPhases", () => {
     // libellés de la seule étape déjà disponible).
     expect(matches.map((m) => m.groupLabel)).toEqual(["Pool A"]);
   });
+
+  it("splits a phase's sets by pool when several parallel pools share the same phase (e.g. Pool D1/D2)", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({
+            id: "d1-1",
+            phaseId: "bracket",
+            poolLabel: "D1",
+            round: 1,
+            fullRoundText: "Winners Round 1",
+            slots: [slot("Alice"), slot("Bob")],
+          }),
+          makeSet({
+            id: "d2-1",
+            phaseId: "bracket",
+            poolLabel: "D2",
+            round: 1,
+            fullRoundText: "Winners Round 1",
+            slots: [slot("Carl"), slot("Dana")],
+          }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    // Sans le découpage par poule, les deux matchs se retrouveraient tous
+    // les deux étiquetés "Winners Round 1" (même round, même étape) — le
+    // bracket-tree ne pourrait alors plus distinguer les deux poules.
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Poule D1 — Winners Round 1", "Poule D2 — Winners Round 1"]);
+  });
+
+  it("keeps a shared (non-pooled) set from the same phase, like a common Grand Final, instead of dropping it", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "d1-1", phaseId: "bracket", poolLabel: "D1", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "d2-1", phaseId: "bracket", poolLabel: "D2", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "gf", phaseId: "bracket", poolLabel: null, round: 4, fullRoundText: "Grand Final" }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual([
+      "Poule D1 — Winners Round 1",
+      "Poule D2 — Winners Round 1",
+      "Grand Final",
+    ]);
+  });
 });
 
 describe("regieOverallFormat", () => {

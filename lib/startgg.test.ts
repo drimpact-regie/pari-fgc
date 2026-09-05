@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   detectBracketReset,
   getEventPhases,
+  getUpcomingSets,
+  getUpcomingSetsIncludingPreviews,
   isLateBracketRound,
   isLateBracketSet,
   isMvcLocked,
@@ -315,5 +317,70 @@ describe("callStartGG retry/backoff on 429 (exercé via getEventPhases)", () => 
     // exacte (RATE_LIMIT_MAX_RETRIES + 1) est un détail d'implémentation de
     // callStartGG, pas la garantie testée ici.
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Régression pour le "0 match" à l'activation du mode régie sur un bracket
+ * pas encore "démarré" côté start.gg : tant que l'organisateur n'a pas
+ * cliqué sur "Start", TOUS ses sets — y compris un Round 1 déjà entièrement
+ * seedé avec de vrais entrants — sont renvoyés avec un id "preview_", que
+ * getUpcomingSets exclut (à raison, pour le pari). getUpcomingSetsIncludingPreviews
+ * (réservée au mode régie) doit, elle, les garder.
+ */
+describe("getUpcomingSets vs getUpcomingSetsIncludingPreviews", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  function rawSetNode(overrides: { id: string; fullRoundText?: string }) {
+    return {
+      id: overrides.id,
+      round: 1,
+      fullRoundText: overrides.fullRoundText ?? "Winners Round 1",
+      state: 1,
+      winnerId: null,
+      totalGames: 3,
+      slots: [
+        { entrant: { id: "1", name: "Alice" }, seed: { seedNum: 1 }, standing: null },
+        { entrant: { id: "2", name: "Bob" }, seed: { seedNum: 64 }, standing: null },
+      ],
+      phaseGroup: null,
+    };
+  }
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  function mockOnePageOfSets(nodes: ReturnType<typeof rawSetNode>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { event: { sets: { pageInfo: { totalPages: 1 }, nodes } } } }),
+          { status: 200 },
+        ),
+      ),
+    );
+  }
+
+  it("getUpcomingSets drops preview_ sets, even a fully-seeded not-yet-started Round 1", async () => {
+    mockOnePageOfSets([rawSetNode({ id: "preview_123" }), rawSetNode({ id: "456" })]);
+
+    const sets = await getUpcomingSets("tournament/x/event/y");
+
+    expect(sets.map((s) => s.id)).toEqual(["456"]);
+  });
+
+  it("getUpcomingSetsIncludingPreviews keeps them, for the régie import's own use", async () => {
+    mockOnePageOfSets([rawSetNode({ id: "preview_123" }), rawSetNode({ id: "456" })]);
+
+    const sets = await getUpcomingSetsIncludingPreviews("tournament/x/event/y");
+
+    expect(sets.map((s) => s.id)).toEqual(["preview_123", "456"]);
   });
 });
