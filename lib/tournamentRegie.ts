@@ -143,11 +143,15 @@ export interface RegiePhaseSets {
  * éclatés par poolLabel (dans l'ordre de première apparition) avant d'être
  * passés à buildRegieMatchesFromSets, puis recombinés.
  *
- * Les libellés de round sont préfixés par le nom de l'étape UNIQUEMENT s'il
- * y a plusieurs étapes avec des matchs, et par la poule UNIQUEMENT s'il y en
- * a plusieurs au sein d'une étape (sinon comportement inchangé) — pour
- * distinguer par exemple "Poules — Round 1" de "Bracket — Round 1", ou
- * "Poule D1 — Winners Round 1" de "Poule D2 — Winners Round 1".
+ * Le libellé de round est préfixé par EXACTEMENT un seul niveau — jamais les
+ * deux combinés — pour rester un simple regroupement à un cran (voir la page
+ * admin, qui déplie ce préfixe en un groupe "Poule D1"/"Poule D2"/"Top 8" au
+ * survol du bracket) : la poule si l'étape en a plusieurs (elle identifie
+ * déjà sans ambiguïté), sinon le nom de l'étape si l'event en a plusieurs
+ * avec des matchs, sinon rien (comportement inchangé pour un event à une
+ * seule étape sans poule). Donne par exemple "Poule D1 — Winners Round 1" /
+ * "Poule D2 — Winners Round 1" (étape "Bracket" à deux poules) à côté de
+ * "Top 8 — Winners Round 1" (étape "Top 8", sans poule) pour le même event.
  */
 export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): ParsedMatch[] {
   const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
@@ -170,17 +174,12 @@ export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): P
       : [{ label: null as string | null, sets }];
 
     for (const { label: poolLabel, sets: poolSets } of poolBuckets) {
+      const sectionLabel = poolLabel ? `Poule ${poolLabel}` : multiplePhases ? phase.name : null;
       for (const match of buildRegieMatchesFromSets(poolSets)) {
-        const prefixParts = [multiplePhases ? phase.name : null, poolLabel ? `Poule ${poolLabel}` : null].filter(
-          (part): part is string => Boolean(part),
-        );
         allMatches.push({
           ...match,
           orderIndex: globalIndex++,
-          groupLabel:
-            prefixParts.length > 0 && match.groupLabel
-              ? `${prefixParts.join(" — ")} — ${match.groupLabel}`
-              : match.groupLabel,
+          groupLabel: sectionLabel && match.groupLabel ? `${sectionLabel} — ${match.groupLabel}` : match.groupLabel,
         });
       }
     }

@@ -190,6 +190,38 @@ describe("buildRegieMatchesFromPhases", () => {
     expect(matches.map((m) => m.groupLabel)).toEqual(["Poule D1 — Winners Round 1", "Poule D2 — Winners Round 1"]);
   });
 
+  it("prefers the pool name over the phase name when both apply (never combines the two)", () => {
+    // Cas réel rencontré : étape "Bracket" à deux poules (D1/D2) menant vers
+    // une étape "Top 8" séparée sans poule, toutes deux avec des matchs — le
+    // préfixe reste "Poule D1"/"Poule D2" (pas "Bracket — Poule D1"), et
+    // "Top 8" seul pour l'étape sans poule, pour que la page admin puisse
+    // replier "Poule D1" / "Poule D2" / "Top 8" comme trois groupes de même
+    // niveau plutôt que d'imbriquer un niveau "Bracket" superflu.
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const top8 = makePhase({ id: "top8", name: "Top 8", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "d1-1", phaseId: "bracket", poolLabel: "D1", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "d2-1", phaseId: "bracket", poolLabel: "D2", fullRoundText: "Winners Round 1" }),
+        ],
+      },
+      {
+        phase: top8,
+        sets: [makeSet({ id: "t8-1", phaseId: "top8", poolLabel: null, fullRoundText: "Winners Round 1" })],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual([
+      "Poule D1 — Winners Round 1",
+      "Poule D2 — Winners Round 1",
+      "Top 8 — Winners Round 1",
+    ]);
+  });
+
   it("keeps a shared (non-pooled) set from the same phase, like a common Grand Final, instead of dropping it", () => {
     const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
     const phasesWithSets: RegiePhaseSets[] = [

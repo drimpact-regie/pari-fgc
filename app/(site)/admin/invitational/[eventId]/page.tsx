@@ -47,6 +47,30 @@ function TabLink({ eventId, tab, active, children }: { eventId: string; tab: Tab
 
 type MatchRow = InvitationalMatch & { competitorA: InvitationalCompetitor | null; competitorB: InvitationalCompetitor | null };
 
+// Même séparateur que celui utilisé pour préfixer groupLabel côté mode régie
+// (voir buildRegieMatchesFromPhases dans lib/tournamentRegie.ts) — jamais
+// plus d'un niveau de préfixe n'est ajouté là-bas, donc ce premier "—"
+// suffit à en extraire la section ("Poule D1"/"Poule D2"/"Top 8"...) du
+// libellé de round proprement dit ("Winners Round 1"...).
+const SECTION_SEPARATOR = " — ";
+
+interface RoundGroupData {
+  fullLabel: string;
+  roundLabel: string;
+  matches: MatchRow[];
+}
+
+interface SectionData {
+  name: string | null;
+  roundGroups: RoundGroupData[];
+}
+
+function splitSection(label: string): { section: string | null; roundLabel: string } {
+  const idx = label.indexOf(SECTION_SEPARATOR);
+  if (idx === -1) return { section: null, roundLabel: label };
+  return { section: label.slice(0, idx), roundLabel: label.slice(idx + SECTION_SEPARATOR.length) };
+}
+
 /**
  * Un round replié par défaut s'il est encore 100% "à déterminer" (aucun
  * adversaire connu, pas encore ouvert/joué) — plutôt que d'encombrer
@@ -93,6 +117,67 @@ function RoundGroup({
   );
 }
 
+/**
+ * Rounds d'une section (ex. "Poule D1", ou la racine si l'event n'a ni
+ * poule ni étape multiple) — même séparation Winner/Loser Side qu'avant,
+ * simplement rejouée à l'intérieur de chaque section plutôt qu'au niveau
+ * racine de la page.
+ */
+function RoundGroupsForSection({
+  roundGroups,
+  event,
+}: {
+  roundGroups: RoundGroupData[];
+  event: {
+    id: string;
+    twitchChannel: string | null;
+    activeChatMatchId: string | null;
+    activeOverlayMatchId: string | null;
+    activeOverlayMatchSwapped: boolean;
+  };
+}) {
+  const winnerGroups = roundGroups.filter((rg) => classifyRoundSide(rg.roundLabel || "Matchs") === "winners");
+  const loserGroups = roundGroups.filter((rg) => classifyRoundSide(rg.roundLabel || "Matchs") === "losers");
+
+  function group(rg: RoundGroupData) {
+    return (
+      <RoundGroup
+        key={rg.fullLabel || "__default"}
+        groupLabel={rg.roundLabel}
+        matches={rg.matches}
+        eventId={event.id}
+        showChatButton={Boolean(event.twitchChannel)}
+        activeChatMatchId={event.activeChatMatchId}
+        activeOverlayMatchId={event.activeOverlayMatchId}
+        activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
+      />
+    );
+  }
+
+  if (loserGroups.length === 0) {
+    // Simple élimination (ou format sans camp perdant) : pas de séparation
+    // Winner/Loser Side, juste les rounds à la suite.
+    return <>{winnerGroups.map(group)}</>;
+  }
+
+  return (
+    <>
+      <details open className="flex flex-col gap-3">
+        <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
+          Winner Side
+        </summary>
+        <div className="flex flex-col gap-3">{winnerGroups.map(group)}</div>
+      </details>
+      <details open className="flex flex-col gap-3">
+        <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
+          Loser Side
+        </summary>
+        <div className="flex flex-col gap-3">{loserGroups.map(group)}</div>
+      </details>
+    </>
+  );
+}
+
 export default async function AdminInvitationalEventPage({
   params,
   searchParams,
@@ -126,15 +211,29 @@ export default async function AdminInvitationalEventPage({
 
   // Regroupées par libellé de round, dans l'ordre de première apparition
   // (donc déjà chronologique, matches triés par orderIndex ci-dessus) — un
-  // Map JS préserve l'ordre d'insertion de ses clés à l'itération.
-  const groups = new Map<string, typeof matches>();
+  // Map JS préserve l'ordre d'insertion de ses clés à l'itération. Puis
+  // reregroupées par "section" (le préfixe éventuel avant le premier "—",
+  // voir splitSection) — "Poule D1"/"Poule D2"/"Top 8" pour un event mode
+  // régie multi-poules ou multi-étapes, ou une seule section sans nom pour
+  // un event simple (comportement inchangé dans ce cas).
+  const roundGroupsByLabel = new Map<string, typeof matches>();
   for (const match of matches) {
     const key = match.groupLabel ?? "";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(match);
+    if (!roundGroupsByLabel.has(key)) roundGroupsByLabel.set(key, []);
+    roundGroupsByLabel.get(key)!.push(match);
   }
-  const winnerGroups = Array.from(groups.entries()).filter(([label]) => classifyRoundSide(label || "Matchs") === "winners");
-  const loserGroups = Array.from(groups.entries()).filter(([label]) => classifyRoundSide(label || "Matchs") === "losers");
+  const sections: SectionData[] = [];
+  const sectionByName = new Map<string | null, SectionData>();
+  for (const [fullLabel, groupMatches] of roundGroupsByLabel) {
+    const { section, roundLabel } = splitSection(fullLabel || "Matchs");
+    let sectionData = sectionByName.get(section);
+    if (!sectionData) {
+      sectionData = { name: section, roundGroups: [] };
+      sectionByName.set(section, sectionData);
+      sections.push(sectionData);
+    }
+    sectionData.roundGroups.push({ fullLabel, roundLabel, matches: groupMatches });
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -184,62 +283,26 @@ export default async function AdminInvitationalEventPage({
             <p className="text-sm" style={{ color: "var(--muted)" }}>
               Aucun match importé pour cet event.
             </p>
-          ) : loserGroups.length === 0 ? (
-            // Simple élimination (ou format sans camp perdant) : pas de
-            // séparation Winner/Loser Side, juste les rounds à la suite.
-            winnerGroups.map(([groupLabel, groupMatches]) => (
-              <RoundGroup
-                key={groupLabel || "__default"}
-                groupLabel={groupLabel}
-                matches={groupMatches}
-                eventId={event.id}
-                showChatButton={Boolean(event.twitchChannel)}
-                activeChatMatchId={event.activeChatMatchId}
-                activeOverlayMatchId={event.activeOverlayMatchId}
-                activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-              />
-            ))
           ) : (
-            <>
-              <details open className="flex flex-col gap-3">
-                <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
-                  Winner Side
-                </summary>
-                <div className="flex flex-col gap-3">
-                  {winnerGroups.map(([groupLabel, groupMatches]) => (
-                    <RoundGroup
-                      key={groupLabel || "__default"}
-                      groupLabel={groupLabel}
-                      matches={groupMatches}
-                      eventId={event.id}
-                      showChatButton={Boolean(event.twitchChannel)}
-                      activeChatMatchId={event.activeChatMatchId}
-                      activeOverlayMatchId={event.activeOverlayMatchId}
-                      activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-                    />
-                  ))}
+            sections.map((section) =>
+              section.name ? (
+                <details key={section.name} open className="card overflow-hidden">
+                  <summary
+                    className="px-4 py-3 cursor-pointer font-semibold text-sm"
+                    style={{ background: "var(--surface-alt)" }}
+                  >
+                    {section.name}
+                  </summary>
+                  <div className="p-3 flex flex-col gap-3">
+                    <RoundGroupsForSection roundGroups={section.roundGroups} event={event} />
+                  </div>
+                </details>
+              ) : (
+                <div key="__no-section" className="flex flex-col gap-3">
+                  <RoundGroupsForSection roundGroups={section.roundGroups} event={event} />
                 </div>
-              </details>
-              <details open className="flex flex-col gap-3">
-                <summary className="text-sm font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
-                  Loser Side
-                </summary>
-                <div className="flex flex-col gap-3">
-                  {loserGroups.map(([groupLabel, groupMatches]) => (
-                    <RoundGroup
-                      key={groupLabel || "__default"}
-                      groupLabel={groupLabel}
-                      matches={groupMatches}
-                      eventId={event.id}
-                      showChatButton={Boolean(event.twitchChannel)}
-                      activeChatMatchId={event.activeChatMatchId}
-                      activeOverlayMatchId={event.activeOverlayMatchId}
-                      activeOverlayMatchSwapped={event.activeOverlayMatchSwapped}
-                    />
-                  ))}
-                </div>
-              </details>
-            </>
+              ),
+            )
           )}
         </>
       ) : (
