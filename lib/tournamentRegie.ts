@@ -42,16 +42,6 @@ export function mapBracketTypeToInvitationalFormat(bracketType: string | null): 
   }
 }
 
-/**
- * La dernière phase renvoyée par start.gg est presque toujours le bracket
- * final (poules puis bracket, dans l'ordre renvoyé par l'API) — heuristique
- * non vérifiée en conditions réelles depuis cet environnement (pas d'accès
- * réseau sortant), à confirmer sur la première activation.
- */
-export function pickRegiePhase(phases: StartggPhase[]): StartggPhase | null {
-  return phases.length > 0 ? phases[phases.length - 1] : null;
-}
-
 /** Groupe des sets par round (voir convention start.gg documentée dans lib/bracket.ts), triés selon `compareRounds`. */
 function bucketByRound(
   sets: StartggSet[],
@@ -128,12 +118,59 @@ export function buildRegieMatchesFromSets(sets: StartggSet[]): ParsedMatch[] {
   return orderedBuckets.flatMap((bucketSets) => bucketSets.map((set) => setToParsedMatch(set, globalIndex++)));
 }
 
-async function fetchPhaseSets(eventSlug: string, phaseId: string): Promise<StartggSet[]> {
-  const [upcoming, completed] = await Promise.all([
-    getUpcomingSets(eventSlug),
-    getCompletedSets(eventSlug),
-  ]);
-  return [...upcoming, ...completed].filter((s) => s.phaseId === phaseId);
+export interface RegiePhaseSets {
+  phase: StartggPhase;
+  sets: StartggSet[];
+}
+
+/**
+ * Combine TOUTES les étapes start.gg d'un event (poules puis bracket, ou un
+ * bracket scindé en plusieurs étapes de taille décroissante) en une seule
+ * liste de matchs pour le mode régie — plutôt que la seule dernière étape
+ * (l'ancien comportement se limitait de fait au bracket final, "Top 8" côté
+ * utilisateur). `buildRegieMatchesFromSets` se réutilise tel quel par étape :
+ * son filtre "grand final"/round négatif ne matche jamais rien pour une
+ * étape de poules (ROUND_ROBIN/SWISS), qui se réduit alors naturellement à
+ * un simple tri par round croissant — pas besoin d'une fonction séparée.
+ * Les libellés de round sont préfixés par le nom de l'étape UNIQUEMENT s'il
+ * y a plusieurs étapes avec des matchs (sinon comportement inchangé), pour
+ * distinguer par exemple "Poules — Round 1" de "Bracket — Round 1".
+ */
+export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): ParsedMatch[] {
+  const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
+  const multiplePhases = withMatches.length > 1;
+
+  let globalIndex = 0;
+  const allMatches: ParsedMatch[] = [];
+  for (const { phase, sets } of withMatches) {
+    for (const match of buildRegieMatchesFromSets(sets)) {
+      allMatches.push({
+        ...match,
+        orderIndex: globalIndex++,
+        groupLabel: multiplePhases && match.groupLabel ? `${phase.name} — ${match.groupLabel}` : match.groupLabel,
+      });
+    }
+  }
+  return allMatches;
+}
+
+/**
+ * Format Invitational de l'ensemble : celui de l'étape si une seule a des
+ * matchs (comportement inchangé), sinon celui partagé si toutes les étapes
+ * avec des matchs sont du même type start.gg (ex. un bracket scindé en
+ * plusieurs étapes DOUBLE_ELIMINATION reste un vrai bracket unique) — et
+ * "LIST" en repli dès que les types diffèrent (poules + bracket) : aucun
+ * rendu "arbre" unique n'a de sens pour un mélange des deux, mais la liste
+ * de matchs, le classement chronologique et la désignation du match actif à
+ * l'overlay restent, eux, disponibles quel que soit le format.
+ */
+export function regieOverallFormat(phasesWithSets: RegiePhaseSets[]): InvitationalFormat {
+  const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
+  const bracketTypes = new Set(withMatches.map((p) => p.phase.bracketType));
+  if (bracketTypes.size === 1) {
+    return mapBracketTypeToInvitationalFormat(withMatches[0].phase.bracketType);
+  }
+  return "LIST";
 }
 
 async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalImport> {
@@ -146,31 +183,39 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
     );
   }
 
-  const phase = pickRegiePhase(phases);
-  if (!phase) {
+  if (phases.length === 0) {
     throw new RegieError("Aucune étape trouvée côté start.gg pour ce tournoi.");
   }
 
-  let sets: StartggSet[];
+  let allSets: StartggSet[];
   try {
-    sets = await fetchPhaseSets(eventSlug, phase.id);
+    const [upcoming, completed] = await Promise.all([
+      getUpcomingSets(eventSlug),
+      getCompletedSets(eventSlug),
+    ]);
+    allSets = [...upcoming, ...completed];
   } catch (err) {
     throw new RegieError(
       err instanceof StartggApiError ? err.message : "Impossible de contacter start.gg.",
     );
   }
 
-  if (sets.length === 0) {
+  const phasesWithSets: RegiePhaseSets[] = phases.map((phase) => ({
+    phase,
+    sets: allSets.filter((s) => s.phaseId === phase.id),
+  }));
+
+  const matches = buildRegieMatchesFromPhases(phasesWithSets);
+  if (matches.length === 0) {
     throw new RegieError(
-      `Aucun match généré côté start.gg pour l'étape "${phase.name}" (dernière étape de l'event, celle importée par le mode régie). ` +
-        `Si une étape précédente (poules, qualifications...) n'est pas encore terminée, le bracket final n'a probablement pas encore été seedé — ` +
-        `réessaie une fois cette étape terminée et le bracket réellement généré sur start.gg.`,
+      "Aucun match généré côté start.gg pour l'instant, sur aucune étape de ce tournoi (poules ou bracket) — " +
+        "le tournoi n'a probablement pas encore démarré ou son bracket n'a pas encore été seedé. Réessaie une fois lancé sur start.gg.",
     );
   }
 
   return {
-    format: mapBracketTypeToInvitationalFormat(phase.bracketType),
-    matches: buildRegieMatchesFromSets(sets),
+    format: regieOverallFormat(phasesWithSets),
+    matches,
   };
 }
 

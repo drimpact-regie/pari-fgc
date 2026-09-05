@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { StartggSet } from "./startgg";
+import type { StartggPhase, StartggSet } from "./startgg";
 import {
+  buildRegieMatchesFromPhases,
   buildRegieMatchesFromSets,
   mapBracketTypeToInvitationalFormat,
-  pickRegiePhase,
+  regieOverallFormat,
+  type RegiePhaseSets,
 } from "./tournamentRegie";
 
 function makeSet(overrides: Partial<StartggSet> & { id: string }): StartggSet {
@@ -41,19 +43,9 @@ describe("mapBracketTypeToInvitationalFormat", () => {
   });
 });
 
-describe("pickRegiePhase", () => {
-  it("returns null when there are no phases", () => {
-    expect(pickRegiePhase([])).toBeNull();
-  });
-
-  it("picks the last phase (final bracket, after any pools)", () => {
-    const phases = [
-      { id: "1", name: "Pools", bracketType: "ROUND_ROBIN" },
-      { id: "2", name: "Top 8", bracketType: "DOUBLE_ELIMINATION" },
-    ];
-    expect(pickRegiePhase(phases)?.id).toBe("2");
-  });
-});
+function makePhase(overrides: Partial<StartggPhase> & { id: string }): StartggPhase {
+  return { name: "Phase", bracketType: null, ...overrides };
+}
 
 describe("buildRegieMatchesFromSets", () => {
   it("orders single-elimination rounds by round number and fills TBD placeholders", () => {
@@ -96,5 +88,112 @@ describe("buildRegieMatchesFromSets", () => {
     // ne peut plus distinguer "Winners Round 1" de "Grand Final Reset" et
     // affiche les colonnes dans un ordre arbitraire.
     expect(matches.map((m) => m.orderIndex)).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
+describe("buildRegieMatchesFromPhases", () => {
+  it("leaves labels unprefixed and reuses buildRegieMatchesFromSets ordering for a single phase", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Round 1", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Round 1"]);
+  });
+
+  it("prefixes group labels with the phase name once several phases contribute matches", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Pool A", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "b1", phaseId: "bracket", round: 1, fullRoundText: "Winners Round 1", slots: [slot("Alice"), slot("Carl")] }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Poules — Pool A", "Bracket — Winners Round 1"]);
+    // orderIndex reste global sur l'ensemble des étapes, pas remis à zéro à
+    // la deuxième étape — même raison que dans buildRegieMatchesFromSets.
+    expect(matches.map((m) => m.orderIndex)).toEqual([0, 1]);
+  });
+
+  it("skips phases without any generated set entirely (not yet seeded)", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Pool A", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+      { phase: bracket, sets: [] },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    // Une seule étape a effectivement des matchs : pas de préfixe, comme un
+    // event mono-étape (le bracket pas encore seedé ne doit pas polluer les
+    // libellés de la seule étape déjà disponible).
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Pool A"]);
+  });
+});
+
+describe("regieOverallFormat", () => {
+  it("uses the single phase's format when only one phase has matches", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [{ phase: bracket, sets: [makeSet({ id: "b1" })] }];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("keeps the shared bracket format when a bracket is split across several same-type phases", () => {
+    const top64 = makePhase({ id: "top64", name: "Top 64", bracketType: "DOUBLE_ELIMINATION" });
+    const top8 = makePhase({ id: "top8", name: "Top 8", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: top64, sets: [makeSet({ id: "s1" })] },
+      { phase: top8, sets: [makeSet({ id: "s2" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("falls back to LIST when pools and bracket phases (different types) both have matches", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [makeSet({ id: "p1" })] },
+      { phase: bracket, sets: [makeSet({ id: "b1" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("LIST");
+  });
+
+  it("ignores phases without matches when checking for a shared type", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [] },
+      { phase: bracket, sets: [makeSet({ id: "b1" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
   });
 });
