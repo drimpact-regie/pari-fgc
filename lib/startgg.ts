@@ -19,6 +19,11 @@ export class StartggApiError extends Error {
   constructor(
     message: string,
     public readonly details?: unknown,
+    /** Code HTTP de la réponse start.gg, quand l'erreur vient d'une réponse
+     * non-ok (absent pour une erreur réseau/GraphQL/config) — permet aux
+     * appelants de distinguer un 429 (limite de débit, réessayer aide) d'une
+     * vraie panne sans avoir à parser le texte du message. */
+    public readonly status?: number,
   ) {
     super(message);
     this.name = "StartggApiError";
@@ -27,8 +32,21 @@ export class StartggApiError extends Error {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Nombre de tentatives supplémentaires en cas de 429 (limite de débit start.gg). */
-const RATE_LIMIT_MAX_RETRIES = 2;
+/**
+ * Nombre de tentatives supplémentaires en cas de 429 (limite de débit
+ * start.gg), et plafond du backoff exponentiel entre deux tentatives.
+ * Relevé de 2 à 4 tentatives après le 429 rencontré à l'activation du mode
+ * régie (lib/tournamentRegie.ts) : cet import peut à lui seul déclencher
+ * jusqu'à une dizaine de requêtes (une par étape du tournoi, plus la
+ * pagination des sets à venir/terminés) dans un intervalle court — un budget
+ * de 2 tentatives (soit ~1,2s de backoff cumulé dans le pire cas) s'épuisait
+ * trop vite si plusieurs de ces requêtes tombaient sur la même fenêtre de
+ * limite. Le plafond de 2s évite qu'un appel interactif (ex. placer un pari)
+ * qui passe par ce même point central n'attende, lui, une dizaine de
+ * secondes avant d'échouer.
+ */
+const RATE_LIMIT_MAX_RETRIES = 4;
+const RATE_LIMIT_MAX_BACKOFF_MS = 2000;
 
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
@@ -72,7 +90,9 @@ async function callStartGG<T>(
       // une action utilisateur (ex. placer un pari) pour un blocage transitoire.
       const retryAfterHeader = res.headers.get("Retry-After");
       const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
-      const backoffMs = Number.isFinite(retryAfterMs) ? retryAfterMs : 400 * 2 ** attempt;
+      const backoffMs = Number.isFinite(retryAfterMs)
+        ? retryAfterMs
+        : Math.min(400 * 2 ** attempt, RATE_LIMIT_MAX_BACKOFF_MS);
       await sleep(backoffMs);
       continue;
     }
@@ -82,6 +102,7 @@ async function callStartGG<T>(
       throw new StartggApiError(
         `L'API start.gg a répondu ${res.status} ${res.statusText}.`,
         text,
+        res.status,
       );
     }
 

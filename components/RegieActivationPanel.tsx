@@ -60,7 +60,7 @@ export default function RegieActivationPanel({
         </div>
         <div>
           <button type="button" className="btn btn-primary text-xs" disabled={loading} onClick={() => run("activate")}>
-            {loading ? "..." : "Activer le mode régie"}
+            {loading ? "..." : error ? "Réessayer" : "Activer le mode régie"}
           </button>
         </div>
         {error && (
@@ -83,7 +83,7 @@ export default function RegieActivationPanel({
           </p>
         </div>
         <button type="button" className="btn text-xs" disabled={loading} onClick={() => run("resync")}>
-          {loading ? "..." : "Resynchroniser depuis start.gg"}
+          {loading ? "..." : error ? "Réessayer" : "Resynchroniser depuis start.gg"}
         </button>
       </div>
       {summary && (

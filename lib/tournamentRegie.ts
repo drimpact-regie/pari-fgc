@@ -173,14 +173,39 @@ export function regieOverallFormat(phasesWithSets: RegiePhaseSets[]): Invitation
   return "LIST";
 }
 
+/**
+ * Message remonté au régisseur quand un appel start.gg échoue pendant
+ * l'import régie — distingue le 429 (limite de débit atteinte MALGRÉ les
+ * tentatives déjà effectuées par callStartGG, voir lib/startgg.ts) d'une
+ * vraie panne : dans ce cas précis, la bonne réponse est de réessayer dans
+ * quelques instants, pas de traiter ça comme une erreur définitive. Diagnostic
+ * du 429 rencontré ici : cet import n'est PAS un seul appel réseau malgré la
+ * description produit ("un seul appel API") — getEventPhases() puis
+ * getUpcomingSets()/getCompletedSets() (chacune paginée jusqu'à 5 pages, voir
+ * fetchAllPages) peuvent totaliser jusqu'à une dizaine de requêtes HTTP pour
+ * un gros tournoi, ce qui suffit à épuiser un budget de débit déjà entamé
+ * par ailleurs (page Matchs ouverte sur ce tournoi, cron de résolution...).
+ */
+export function regieStartggErrorMessage(err: unknown): string {
+  if (err instanceof StartggApiError) {
+    if (err.status === 429) {
+      return (
+        "start.gg a temporairement limité les appels (trop de requêtes), malgré plusieurs tentatives " +
+        "automatiques déjà effectuées — patiente quelques secondes puis clique de nouveau sur " +
+        '"Activer le mode régie".'
+      );
+    }
+    return err.message;
+  }
+  return "Impossible de contacter start.gg.";
+}
+
 async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalImport> {
   let phases: StartggPhase[];
   try {
     phases = await getEventPhases(eventSlug);
   } catch (err) {
-    throw new RegieError(
-      err instanceof StartggApiError ? err.message : "Impossible de contacter start.gg.",
-    );
+    throw new RegieError(regieStartggErrorMessage(err));
   }
 
   if (phases.length === 0) {
@@ -189,15 +214,18 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
 
   let allSets: StartggSet[];
   try {
-    const [upcoming, completed] = await Promise.all([
-      getUpcomingSets(eventSlug),
-      getCompletedSets(eventSlug),
-    ]);
+    // Séquentiel plutôt que Promise.all : ce sont déjà deux requêtes
+    // paginées (jusqu'à 5 pages chacune) qui tournent chacune en interne de
+    // façon séquentielle — les lancer en plus l'une contre l'autre en
+    // parallèle ne fait que doubler la pointe de requêtes simultanées
+    // envoyées à start.gg pour un import qui n'est de toute façon pas
+    // sensible au temps (action ponctuelle d'activation, pas un chargement
+    // de page utilisateur).
+    const upcoming = await getUpcomingSets(eventSlug);
+    const completed = await getCompletedSets(eventSlug);
     allSets = [...upcoming, ...completed];
   } catch (err) {
-    throw new RegieError(
-      err instanceof StartggApiError ? err.message : "Impossible de contacter start.gg.",
-    );
+    throw new RegieError(regieStartggErrorMessage(err));
   }
 
   const phasesWithSets: RegiePhaseSets[] = phases.map((phase) => ({

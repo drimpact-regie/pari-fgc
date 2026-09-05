@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   detectBracketReset,
+  getEventPhases,
   isLateBracketRound,
   isLateBracketSet,
   isMvcLocked,
@@ -9,6 +10,7 @@ import {
   isPreviewSetId,
   isSetOpenForBetting,
   SET_STATE,
+  StartggApiError,
   tournamentSlugFromEventSlug,
   type StartggEntrant,
   type StartggSet,
@@ -252,5 +254,66 @@ describe("tournamentSlugFromEventSlug", () => {
 
   it("returns the input unchanged when there is no /event/ segment", () => {
     expect(tournamentSlugFromEventSlug("tournament/ceo-2026")).toBe("tournament/ceo-2026");
+  });
+});
+
+/**
+ * Régression pour le 429 rencontré à l'activation du mode régie
+ * (lib/tournamentRegie.ts) : callStartGG (privé, exercé ici via
+ * getEventPhases — la plus simple de ses appelantes, une seule requête sans
+ * pagination) doit absorber un 429 transitoire tout seul, et transmettre le
+ * code HTTP quand la limite persiste au-delà des tentatives automatiques,
+ * pour que l'appelant puisse distinguer ce cas (réessayer aide) d'une vraie
+ * panne.
+ */
+describe("callStartGG retry/backoff on 429 (exercé via getEventPhases)", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("retries a transient 429 and eventually succeeds", async () => {
+    const rateLimited = new Response("rate limited", { status: 429 });
+    const ok = new Response(
+      JSON.stringify({
+        data: { event: { phases: [{ id: 1, name: "Bracket", bracketType: "SINGLE_ELIMINATION" }] } },
+      }),
+      { status: 200 },
+    );
+    const fetchMock = vi.fn().mockResolvedValueOnce(rateLimited).mockResolvedValueOnce(ok);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = getEventPhases("tournament/x/event/y");
+    await vi.runAllTimersAsync();
+    const phases = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(phases).toEqual([{ id: "1", name: "Bracket", bracketType: "SINGLE_ELIMINATION" }]);
+  });
+
+  it("gives up after exhausting retries and surfaces a StartggApiError carrying the 429 status", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () =>
+      new Response("rate limited", { status: 429, statusText: "Too Many Requests" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = getEventPhases("tournament/x/event/y").catch((err) => err);
+    await vi.runAllTimersAsync();
+    const err = await promise;
+
+    expect(err).toBeInstanceOf(StartggApiError);
+    expect((err as StartggApiError).status).toBe(429);
+    // Au moins un essai initial + une tentative automatique — la valeur
+    // exacte (RATE_LIMIT_MAX_RETRIES + 1) est un détail d'implémentation de
+    // callStartGG, pas la garantie testée ici.
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
   });
 });

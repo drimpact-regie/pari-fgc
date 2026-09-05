@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { StartggPhase, StartggSet } from "./startgg";
+import { StartggApiError, type StartggPhase, type StartggSet } from "./startgg";
 import {
   buildRegieMatchesFromPhases,
   buildRegieMatchesFromSets,
   mapBracketTypeToInvitationalFormat,
   regieOverallFormat,
+  regieStartggErrorMessage,
   type RegiePhaseSets,
 } from "./tournamentRegie";
 
@@ -195,5 +196,26 @@ describe("regieOverallFormat", () => {
     ];
 
     expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+});
+
+describe("regieStartggErrorMessage", () => {
+  it("gives an actionable retry message for a 429 (rate limit) that survived callStartGG's own retries", () => {
+    const err = new StartggApiError("L'API start.gg a répondu 429 Too Many Requests.", "body", 429);
+
+    const message = regieStartggErrorMessage(err);
+
+    expect(message).toMatch(/limité les appels/i);
+    expect(message).toMatch(/Activer le mode régie/);
+  });
+
+  it("passes through the original message for a non-429 start.gg error", () => {
+    const err = new StartggApiError("Erreur GraphQL renvoyée par start.gg.", { some: "detail" });
+
+    expect(regieStartggErrorMessage(err)).toBe("Erreur GraphQL renvoyée par start.gg.");
+  });
+
+  it("falls back to a generic message for a non-StartggApiError", () => {
+    expect(regieStartggErrorMessage(new Error("boom"))).toBe("Impossible de contacter start.gg.");
   });
 });
