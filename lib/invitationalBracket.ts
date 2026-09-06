@@ -59,10 +59,22 @@ export function classifyRoundSide(label: string): "losers" | "winners" {
  */
 export const SECTION_SEPARATOR = " — ";
 
+/**
+ * Ne garde que les DEUX derniers segments d'un label à séparateurs multiples
+ * (section = avant-dernier, round = dernier), en ignorant tout ce qui
+ * précède : `buildRegieMatchesFromPhases` ne produit plus qu'un seul niveau
+ * de préfixe depuis son dernier correctif, mais un event resynchronisé avant
+ * ce correctif peut encore avoir des labels stockés à double préfixe (ex.
+ * "Bracket — Poule D2 — Winners Round 1", phase ET poule combinées) — les
+ * traiter comme "Poule D2 — Winners Round 1" affiche le bon résultat sans
+ * attendre une resynchronisation, et évite au passage de casser
+ * classifyRoundSide (qui a besoin du VRAI nom de round, pas d'un label
+ * composite, pour reconnaître un round "losers").
+ */
 export function splitSection(label: string): { section: string | null; roundLabel: string } {
-  const idx = label.indexOf(SECTION_SEPARATOR);
-  if (idx === -1) return { section: null, roundLabel: label };
-  return { section: label.slice(0, idx), roundLabel: label.slice(idx + SECTION_SEPARATOR.length) };
+  const parts = label.split(SECTION_SEPARATOR);
+  if (parts.length === 1) return { section: null, roundLabel: parts[0]! };
+  return { section: parts[parts.length - 2]!, roundLabel: parts[parts.length - 1]! };
 }
 
 /**

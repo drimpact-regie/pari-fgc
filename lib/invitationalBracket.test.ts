@@ -69,6 +69,13 @@ describe("splitSection", () => {
   it("returns no section when the label has no separator", () => {
     expect(splitSection("Winners Round 1")).toEqual({ section: null, roundLabel: "Winners Round 1" });
   });
+
+  it("keeps only the last two segments of a stale double-prefixed label (phase + pool from before the single-prefix fix)", () => {
+    expect(splitSection("Bracket — Poule D2 — Winners Round 1")).toEqual({
+      section: "Poule D2",
+      roundLabel: "Winners Round 1",
+    });
+  });
 });
 
 describe("abbreviateStageLabel", () => {
@@ -83,5 +90,9 @@ describe("abbreviateStageLabel", () => {
     expect(abbreviateStageLabel("Top 8 — Grand Final Reset")).toBe("Top 8 - GFR");
     expect(abbreviateStageLabel("Top 8 — Grand Final")).toBe("Top 8 - GF");
     expect(abbreviateStageLabel("Top 8 — Winners Semi-Final")).toBe("Top 8 - WSF");
+  });
+
+  it("drops a stale phase-name prefix from a double-prefixed label", () => {
+    expect(abbreviateStageLabel("Bracket — Poule D2 — Winners Round 1")).toBe("Poule D2 - WR1");
   });
 });

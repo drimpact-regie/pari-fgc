@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 /**
  * Mesure en JS la largeur réelle (px) d'un conteneur, pour calculer soi-même
@@ -9,29 +9,33 @@ import { useEffect, useRef, useState } from "react";
  * Browser Sources via un Chromium embarqué (CEF) dont la version suit celle
  * d'OBS Studio installée par le streamer — potentiellement ancienne — et les
  * container queries (~Chromium 105, 2022) n'y sont pas garanties disponibles.
- * Repéré en conditions réelles : tailles de police configurées différentes
- * (ex. tagA plus petit que nameA) mais rendu à l'identique en stream, alors
- * que l'aperçu admin (navigateur à jour) affichait bien la différence — signe
- * d'un repli silencieux du `cqw` non supporté plutôt qu'un bug de données.
- * `ResizeObserver` est lui supporté bien plus largement (bien avant les
- * container queries), donc un calcul manuel en px est fiable partout.
+ *
+ * Ref de callback (pas `useRef` + `useEffect([])`) : le conteneur mesuré
+ * n'apparaît dans le DOM qu'une fois le match chargé (état asynchrone) côté
+ * overlay OBS, potentiellement plusieurs rendus après le montage initial du
+ * composant — un effet à dépendances vides ne se redéclenche pas à ce
+ * moment-là et ne verrait jamais le conteneur (ref.current resterait null
+ * indéfiniment). Une ref de callback, elle, est invoquée par React à chaque
+ * fois que le nœud DOM sous-jacent apparaît ou change, quel que soit le
+ * rendu qui le produit.
  */
-export function useContainerWidthPx<T extends HTMLElement>(): [React.RefObject<T | null>, number | null] {
-  const ref = useRef<T | null>(null);
+export function useContainerWidthPx<T extends HTMLElement>(): [(node: T | null) => void, number | null] {
   const [width, setWidth] = useState<number | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
+  const ref = useCallback((node: T | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node) return;
 
-    setWidth(el.getBoundingClientRect().width);
+    setWidth(node.getBoundingClientRect().width);
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) setWidth(entry.contentRect.width);
     });
-    observer.observe(el);
-    return () => observer.disconnect();
+    observer.observe(node);
+    observerRef.current = observer;
   }, []);
 
   return [ref, width];
