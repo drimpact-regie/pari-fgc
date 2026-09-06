@@ -97,8 +97,14 @@ export async function GET(
   // l'ancien regroupement simple (une colonne par groupLabel rencontré,
   // sans gabarit ni lignes de connexion) — comportement historique
   // inchangé pour un event pas encore configuré.
+  // Panneau principal (arbre de bracket, ou classement/liste de matchs)
+  // masqué par l'admin (voir InvitationalEvent.hideBracketOverlayPanel) :
+  // pas la peine de le calculer, seul le bandeau défilant du bas est rendu
+  // côté client dans ce cas.
+  const showMainPanel = !event.hideBracketOverlayPanel;
+
   let bracket: Array<{ key: string; label: string; side: string; matches: (ReturnType<typeof bracketMatchView> | null)[] }> | null = null;
-  if (isBracketFormat) {
+  if (isBracketFormat && showMainPanel) {
     bracket = isBracketSize(event.bracketSize)
       ? buildTemplatedBracketColumns(matches, event.format, event.bracketSize).map((column) => ({
           key: column.key,
@@ -114,11 +120,11 @@ export async function GET(
         }));
   }
 
-  const standings = !isBracketFormat
+  const standings = !isBracketFormat && showMainPanel
     ? computeStandings(matches, competitors)
     : null;
 
-  const matchList = !isBracketFormat
+  const matchList = !isBracketFormat && showMainPanel
     ? matches.map((m) => ({
         id: m.id,
         groupLabel: m.groupLabel,
@@ -201,6 +207,7 @@ export async function GET(
   return NextResponse.json({
     event: { id: event.id, name: event.name, format: event.format },
     isBracketFormat,
+    hideBracketOverlayPanel: event.hideBracketOverlayPanel,
     bracket,
     standings,
     matches: matchList,

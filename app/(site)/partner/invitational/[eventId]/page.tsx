@@ -11,6 +11,7 @@ import InvitationalOverlaySettings from "@/components/InvitationalOverlaySetting
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
 import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBracketOverlayLayoutEditor";
 import InvitationalBracketSizeEditor from "@/components/InvitationalBracketSizeEditor";
+import InvitationalHideBracketPanelToggle from "@/components/InvitationalHideBracketPanelToggle";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
@@ -101,6 +102,10 @@ export default async function PartnerInvitationalEventPage({
         initialBackgroundUrl={event.overlayBackgroundUrl}
         initialLayout={mergeOverlayLayout(event.overlayLayout)}
       />
+
+      <div className="card p-4">
+        <InvitationalHideBracketPanelToggle eventId={event.id} hidden={event.hideBracketOverlayPanel} />
+      </div>
 
       {isInvitationalBracketFormat(event.format) ? (
         <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />

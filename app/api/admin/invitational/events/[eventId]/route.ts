@@ -39,6 +39,9 @@ const updateSchema = z.object({
   // lib/invitationalBracketTemplate.ts (gabarit 8/16/32).
   bracketOverlayLayout: bracketOverlayLayoutSchema.optional(),
   bracketSize: z.union([z.literal(8), z.literal(16), z.literal(32)]).nullable().optional(),
+  // Masque l'arbre de bracket (ou classement/liste de matchs) de l'overlay
+  // "bracket/classement", en ne laissant que le bandeau défilant du bas.
+  hideBracketOverlayPanel: z.boolean().optional(),
 });
 
 /**
@@ -132,6 +135,9 @@ export async function PATCH(
         ? { bracketOverlayLayout: parsed.data.bracketOverlayLayout }
         : {}),
       ...(parsed.data.bracketSize !== undefined ? { bracketSize: parsed.data.bracketSize } : {}),
+      ...(parsed.data.hideBracketOverlayPanel !== undefined
+        ? { hideBracketOverlayPanel: parsed.data.hideBracketOverlayPanel }
+        : {}),
     },
   });
 
