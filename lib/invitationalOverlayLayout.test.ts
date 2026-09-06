@@ -56,4 +56,19 @@ describe("mergeOverlayLayout", () => {
     const mergedZero = mergeOverlayLayout({ nameA: { x: 10, y: 20, size: 0 } });
     expect(mergedZero.nameA).toEqual({ x: 10, y: 20, size: DEFAULT_OVERLAY_LAYOUT.nameA.size });
   });
+
+  it("overrides the color of a configurable element (stage/tagA/tagB) with a valid hex value", () => {
+    const merged = mergeOverlayLayout({ stage: { x: 700, y: 40, size: 1.6, color: "#ff0000" } });
+    expect(merged.stage.color).toBe("#ff0000");
+  });
+
+  it("falls back to the default color for an invalid value, without touching x/y/size", () => {
+    const merged = mergeOverlayLayout({ tagA: { x: 10, y: 20, size: 1, color: "not-a-color" } });
+    expect(merged.tagA).toEqual({ x: 10, y: 20, size: 1, color: DEFAULT_OVERLAY_LAYOUT.tagA.color });
+  });
+
+  it("keeps the default color for a layout stored before the color field existed", () => {
+    const merged = mergeOverlayLayout({ stage: { x: 10, y: 20, size: 1 } });
+    expect(merged.stage.color).toBe(DEFAULT_OVERLAY_LAYOUT.stage.color);
+  });
 });

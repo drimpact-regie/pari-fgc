@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   OVERLAY_CANVAS_HEIGHT,
   OVERLAY_CANVAS_WIDTH,
+  OVERLAY_COLOR_ELEMENT_KEYS,
   OVERLAY_ELEMENT_KEYS,
   OVERLAY_ELEMENT_LABELS,
   type OverlayElementKey,
@@ -120,6 +121,11 @@ export default function InvitationalOverlayLayoutEditor({
     setSaved(false);
   }
 
+  function updateColor(key: OverlayElementKey, color: string) {
+    setLayout((prev) => ({ ...prev, [key]: { ...prev[key], color } }));
+    setSaved(false);
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -210,6 +216,18 @@ export default function InvitationalOverlayLayoutEditor({
                 onChange={(e) => updateField(key, "size", e.target.value)}
               />
             </label>
+            {(OVERLAY_COLOR_ELEMENT_KEYS as readonly OverlayElementKey[]).includes(key) && (
+              <label className="text-xs">
+                Couleur
+                <input
+                  type="color"
+                  className="mt-1 block"
+                  style={{ width: "2.5rem", height: "1.75rem", padding: 0, border: "1px solid var(--border)", borderRadius: "0.25rem" }}
+                  value={layout[key].color ?? "#ffffff"}
+                  onChange={(e) => updateColor(key, e.target.value)}
+                />
+              </label>
+            )}
           </div>
         ))}
       </div>
@@ -288,7 +306,7 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
               ...pos,
               fontSize,
               fontWeight: style.weight,
-              color: style.color,
+              color: layout[key].color ?? style.color,
               textShadow: "0 2px 6px rgba(0,0,0,0.85)",
             }}
           >

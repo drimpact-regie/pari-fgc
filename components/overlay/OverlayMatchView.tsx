@@ -172,7 +172,7 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
         )}
 
         {match.groupLabel && (
-          <Text layout={layout} elementKey="stage" containerWidthPx={containerWidthPx} color="#fbbf24" weight={700} centered>
+          <Text layout={layout} elementKey="stage" containerWidthPx={containerWidthPx} color={layout.stage.color} weight={700} centered>
             {abbreviateStageLabel(match.groupLabel)}
           </Text>
         )}
@@ -191,7 +191,7 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
           {match.competitorA?.name ?? "?"}
         </Text>
         {match.competitorA?.tag && (
-          <Text layout={layout} elementKey="tagA" containerWidthPx={containerWidthPx} color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagA" containerWidthPx={containerWidthPx} color={layout.tagA.color} weight={600}>
             {match.competitorA.tag}
           </Text>
         )}
@@ -205,7 +205,7 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
           {match.competitorB?.name ?? "?"}
         </Text>
         {match.competitorB?.tag && (
-          <Text layout={layout} elementKey="tagB" containerWidthPx={containerWidthPx} color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagB" containerWidthPx={containerWidthPx} color={layout.tagB.color} weight={600}>
             {match.competitorB.tag}
           </Text>
         )}

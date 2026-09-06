@@ -46,6 +46,14 @@ export const OVERLAY_ELEMENT_LABELS: Record<OverlayElementKey, string> = {
 export type OverlayLayout = Record<OverlayElementKey, OverlayPosition>;
 
 /**
+ * Éléments dont la couleur du texte est réellement configurable au rendu
+ * (voir OverlayMatchView.tsx) — les autres (noms, scores, drapeaux, FT)
+ * gardent une couleur fixe indépendante du layout, donc ne proposent pas de
+ * sélecteur de couleur dans l'éditeur.
+ */
+export const OVERLAY_COLOR_ELEMENT_KEYS = ["stage", "tagA", "tagB"] as const satisfies readonly OverlayElementKey[];
+
+/**
  * Disposition par défaut si l'event n'a rien configuré (voir
  * mergeOverlayLayout) — joueur A à gauche, B à droite, étape/FT en haut,
  * repère absolu 1920x1080 pour que l'overlay reste utilisable sans
@@ -55,15 +63,18 @@ export type OverlayLayout = Record<OverlayElementKey, OverlayPosition>;
  * joueur) — à ajuster à cette zone précise via les positions ci-dessous.
  */
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-  stage: { x: 700, y: 40, size: 1.6 },
+  // Couleurs par défaut = celles auparavant codées en dur dans
+  // OverlayMatchView.tsx, pour que les layouts déjà enregistrés (sans champ
+  // couleur) rendent exactement comme avant tant que personne n'y touche.
+  stage: { x: 700, y: 40, size: 1.6, color: "#fbbf24" },
   ft: { x: 700, y: 90, size: 1.3 },
   flagA: { x: 120, y: 160, size: 1.1 },
   nameA: { x: 180, y: 150, size: 1.7 },
-  tagA: { x: 180, y: 195, size: 1.1 },
+  tagA: { x: 180, y: 195, size: 1.1, color: "#d1d5db" },
   scoreA: { x: 620, y: 150, size: 2 },
   flagB: { x: 1850, y: 160, size: 1.1 },
   nameB: { x: 1500, y: 150, size: 1.7 },
-  tagB: { x: 1500, y: 195, size: 1.1 },
+  tagB: { x: 1500, y: 195, size: 1.1, color: "#d1d5db" },
   scoreB: { x: 1430, y: 150, size: 2 },
 };
 
