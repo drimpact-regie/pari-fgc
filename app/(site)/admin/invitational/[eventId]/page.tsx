@@ -302,8 +302,8 @@ export default async function AdminInvitationalEventPage({
         <>
           <InvitationalOverlayPresetManager
             eventId={event.id}
-            currentOverlayLayout={event.overlayLayout}
-            currentBracketOverlayLayout={event.bracketOverlayLayout}
+            currentOverlayLayout={mergeOverlayLayout(event.overlayLayout)}
+            currentBracketOverlayLayout={mergeBracketOverlayLayout(event.bracketOverlayLayout)}
             initialPresets={overlayPresets}
           />
 
