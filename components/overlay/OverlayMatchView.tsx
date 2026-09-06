@@ -12,6 +12,7 @@ import {
   type OverlayLayout,
 } from "@/lib/invitationalOverlayLayout";
 import { abbreviateStageLabel } from "@/lib/invitationalBracket";
+import { cqwToPx, useContainerWidthPx } from "@/lib/useContainerWidthPx";
 
 interface OverlayCompetitor {
   name: string;
@@ -64,6 +65,7 @@ function positionStyle(pos: { x: number; y: number }): React.CSSProperties {
 function Text({
   layout,
   elementKey,
+  containerWidthPx,
   children,
   color = "#fff",
   weight = 800,
@@ -71,6 +73,7 @@ function Text({
 }: {
   layout: OverlayLayout;
   elementKey: OverlayElementKey;
+  containerWidthPx: number | null;
   children: React.ReactNode;
   color?: string;
   weight?: number;
@@ -89,7 +92,7 @@ function Text({
         position: "absolute",
         top: `${(pos.y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
         ...(centered ? { left: "50%", transform: "translateX(-50%)" } : { left: `${(pos.x / OVERLAY_CANVAS_WIDTH) * 100}%` }),
-        fontSize: `${pos.size}cqw`,
+        fontSize: cqwToPx(pos.size, containerWidthPx),
         fontWeight: weight,
         color,
         textShadow: TEXT_SHADOW,
@@ -104,6 +107,7 @@ function Text({
 export default function OverlayMatchView({ eventId }: { eventId: string }) {
   const [data, setData] = useState<OverlayMatchResponse | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [containerRef, containerWidthPx] = useContainerWidthPx<HTMLDivElement>();
 
   useEffect(() => {
     let cancelled = false;
@@ -143,10 +147,12 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
     // soit sa taille/son ratio réel, et centre un cadre verrouillé en 16:9
     // à l'intérieur (letterboxing sur les côtés/haut-bas si la source n'est
     // pas exactement 16:9) — sans ce verrouillage, les positions et tailles
-    // de texte (en % / cqw du cadre) dérivaient visiblement dès que la
-    // Browser Source n'était pas configurée en 1920x1080 pile.
+    // de texte (en % / en px calculés depuis la largeur du cadre, voir
+    // useContainerWidthPx) dérivaient visiblement dès que la Browser Source
+    // n'était pas configurée en 1920x1080 pile.
     <div style={{ position: "fixed", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
       <div
+        ref={containerRef}
         className={hansonBold.className}
         style={{
           position: "relative",
@@ -154,7 +160,6 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
           aspectRatio: "16/9",
           maxHeight: "100%",
           overflow: "hidden",
-          containerType: "inline-size",
         }}
       >
         {data?.overlayBackgroundUrl && (
@@ -167,48 +172,48 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
         )}
 
         {match.groupLabel && (
-          <Text layout={layout} elementKey="stage" color="#fbbf24" weight={700} centered>
+          <Text layout={layout} elementKey="stage" containerWidthPx={containerWidthPx} color="#fbbf24" weight={700} centered>
             {abbreviateStageLabel(match.groupLabel)}
           </Text>
         )}
         {match.ftGames && (
-          <Text layout={layout} elementKey="ft" color="#9ca3af" weight={600}>
+          <Text layout={layout} elementKey="ft" containerWidthPx={containerWidthPx} color="#9ca3af" weight={600}>
             FT{match.ftGames}
           </Text>
         )}
 
         {match.competitorA?.countryCode && (
           <span style={positionStyle(layout.flagA)}>
-            <CountryBadge countryCode={match.competitorA.countryCode} fontSize={`${layout.flagA.size}cqw`} />
+            <CountryBadge countryCode={match.competitorA.countryCode} fontSize={cqwToPx(layout.flagA.size, containerWidthPx)} />
           </span>
         )}
-        <Text layout={layout} elementKey="nameA">
+        <Text layout={layout} elementKey="nameA" containerWidthPx={containerWidthPx}>
           {match.competitorA?.name ?? "?"}
         </Text>
         {match.competitorA?.tag && (
-          <Text layout={layout} elementKey="tagA" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagA" containerWidthPx={containerWidthPx} color="#d1d5db" weight={600}>
             {match.competitorA.tag}
           </Text>
         )}
 
         {match.competitorB?.countryCode && (
           <span style={positionStyle(layout.flagB)}>
-            <CountryBadge countryCode={match.competitorB.countryCode} fontSize={`${layout.flagB.size}cqw`} />
+            <CountryBadge countryCode={match.competitorB.countryCode} fontSize={cqwToPx(layout.flagB.size, containerWidthPx)} />
           </span>
         )}
-        <Text layout={layout} elementKey="nameB">
+        <Text layout={layout} elementKey="nameB" containerWidthPx={containerWidthPx}>
           {match.competitorB?.name ?? "?"}
         </Text>
         {match.competitorB?.tag && (
-          <Text layout={layout} elementKey="tagB" color="#d1d5db" weight={600}>
+          <Text layout={layout} elementKey="tagB" containerWidthPx={containerWidthPx} color="#d1d5db" weight={600}>
             {match.competitorB.tag}
           </Text>
         )}
 
-        <Text layout={layout} elementKey="scoreA" weight={900}>
+        <Text layout={layout} elementKey="scoreA" containerWidthPx={containerWidthPx} weight={900}>
           {match.competitorA?.score ?? 0}
         </Text>
-        <Text layout={layout} elementKey="scoreB" weight={900}>
+        <Text layout={layout} elementKey="scoreB" containerWidthPx={containerWidthPx} weight={900}>
           {match.competitorB?.score ?? 0}
         </Text>
       </div>

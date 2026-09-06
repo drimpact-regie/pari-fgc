@@ -13,6 +13,7 @@ import {
 } from "@/lib/invitationalOverlayLayout";
 import { MAX_OVERLAY_BACKGROUND_BASE64_LENGTH } from "@/lib/invitationalOverlayImage";
 import CountryBadge from "@/components/overlay/CountryBadge";
+import { cqwToPx, useContainerWidthPx } from "@/lib/useContainerWidthPx";
 
 /**
  * Couleur/poids par élément — copie exacte de ce que rend
@@ -238,18 +239,21 @@ export default function InvitationalOverlayLayoutEditor({
  * (mobile) et écrase l'affichage. Le ratio 16:9 est lui gardé fixe (voir
  * aspectRatio) pour que les pourcentages tombent au même endroit que sur le
  * rendu overlay réel — voir components/overlay/OverlayMatchView.tsx, même
- * technique. La taille du texte suit la largeur réelle du conteneur (cqw)
- * pour rester lisible aussi bien en petit qu'en grand.
+ * technique. La taille du texte suit la largeur réelle du conteneur, mesurée
+ * en JS (useContainerWidthPx) plutôt que via l'unité CSS `cqw` — voir ce
+ * hook pour le pourquoi (support incertain des container queries dans le
+ * Chromium embarqué d'OBS).
  */
 function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layout: OverlayLayout }) {
+  const [containerRef, containerWidthPx] = useContainerWidthPx<HTMLDivElement>();
   return (
     <div
+      ref={containerRef}
       className="rounded-md overflow-hidden relative"
       style={{
         width: "100%",
         maxWidth: "40rem",
         aspectRatio: "16/9",
-        containerType: "inline-size",
         background: backgroundUrl ? undefined : "repeating-conic-gradient(#1f2937 0% 25%, #111827 0% 50%) 0 0 / 20px 20px",
       }}
     >
@@ -266,7 +270,7 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
             ? { left: "50%", transform: "translateX(-50%)" }
             : { left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%` }),
         };
-        const fontSize = `${layout[key].size}cqw`;
+        const fontSize = cqwToPx(layout[key].size, containerWidthPx);
         if (FLAG_KEYS.includes(key)) {
           return (
             <span key={key} style={pos} title={OVERLAY_ELEMENT_LABELS[key]}>
