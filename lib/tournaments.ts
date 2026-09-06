@@ -33,6 +33,8 @@ export interface TournamentCardInfo {
   name: string;
   bannerUrl: string | null;
   videogameImageUrl: string | null;
+  /** Mode régie actif pour ce jeu (voir Tournament.regieEvent) — sert au bouton "recharger tous les jeux". */
+  regieActive: boolean;
 }
 
 export interface TournamentGroupInfo {
@@ -54,9 +56,14 @@ export interface TournamentGroupInfo {
 export async function groupTournamentsForDisplay(
   tournaments: Tournament[],
 ): Promise<TournamentGroupInfo[]> {
-  const eventInfos = await Promise.all(
-    tournaments.map((t) => getEventInfo(t.eventSlug).catch(() => null)),
-  );
+  const [eventInfos, regieStatuses] = await Promise.all([
+    Promise.all(tournaments.map((t) => getEventInfo(t.eventSlug).catch(() => null))),
+    prisma.tournament.findMany({
+      where: { id: { in: tournaments.map((t) => t.id) } },
+      select: { id: true, regieEvent: { select: { id: true } } },
+    }),
+  ]);
+  const regieActiveById = new Map(regieStatuses.map((t) => [t.id, t.regieEvent != null]));
 
   const groups: TournamentGroupInfo[] = [];
   const groupByRoot = new Map<string, TournamentGroupInfo>();
@@ -78,6 +85,7 @@ export async function groupTournamentsForDisplay(
       name: tournaments[i].name,
       bannerUrl: eventInfos[i]?.bannerUrl ?? null,
       videogameImageUrl: eventInfos[i]?.videogameImageUrl ?? null,
+      regieActive: regieActiveById.get(tournaments[i].id) ?? false,
     });
   }
 

@@ -197,20 +197,49 @@ async function populateOrMergeEventMatches(
     if (match.startggSetId) existingMatchBySetId.set(match.startggSetId, match);
   }
 
-  const competitorIdByName = new Map<string, string>();
+  const competitorByName = new Map<string, { id: string; tag: string | null; countryCode: string | null }>();
   for (const competitor of existingCompetitors) {
-    competitorIdByName.set(normalizeCompetitorKey(competitor.name), competitor.id);
+    competitorByName.set(normalizeCompetitorKey(competitor.name), {
+      id: competitor.id,
+      tag: competitor.tag,
+      countryCode: competitor.countryCode,
+    });
   }
 
+  /**
+   * Pour un compétiteur déjà présent, ne COMPLÈTE que ce qui manque encore
+   * (tag/pays actuellement vides) plutôt que d'ignorer purement et
+   * simplement les valeurs du nouvel import, comme avant ce correctif — un
+   * event activé en mode régie AVANT l'ajout du préremplissage tag/pays
+   * (voir getEventEntrantDetails) gardait sinon ses compétiteurs figés sans
+   * tag/pays pour toujours, une resynchronisation ne faisant que réutiliser
+   * l'id existant sans jamais relire les nouvelles valeurs. Ne jamais
+   * écraser une valeur déjà non vide : le mode régie récupère tag/pays en
+   * best-effort (une requête qui échoue partiellement ne doit pas effacer
+   * une valeur connue d'une resync précédente), et un admin a pu corriger le
+   * tag/pays à la main depuis l'onglet Matchs.
+   */
   async function resolveCompetitorId(competitor: ParsedCompetitor | null): Promise<string | null> {
     if (!competitor) return null;
     const key = normalizeCompetitorKey(competitor.name);
-    const existingId = competitorIdByName.get(key);
-    if (existingId) return existingId;
+    const existing = competitorByName.get(key);
+    if (existing) {
+      const nextTag = existing.tag ?? competitor.tag;
+      const nextCountryCode = existing.countryCode ?? competitor.countryCode;
+      if (nextTag !== existing.tag || nextCountryCode !== existing.countryCode) {
+        await tx.invitationalCompetitor.update({
+          where: { id: existing.id },
+          data: { tag: nextTag, countryCode: nextCountryCode },
+        });
+        existing.tag = nextTag;
+        existing.countryCode = nextCountryCode;
+      }
+      return existing.id;
+    }
     const created = await tx.invitationalCompetitor.create({
       data: { eventId, name: competitor.name, tag: competitor.tag, countryCode: competitor.countryCode },
     });
-    competitorIdByName.set(key, created.id);
+    competitorByName.set(key, { id: created.id, tag: competitor.tag, countryCode: competitor.countryCode });
     return created.id;
   }
 

@@ -7,6 +7,7 @@ import AddTournamentForm from "@/components/AddTournamentForm";
 import BulkImportTournamentsForm from "@/components/BulkImportTournamentsForm";
 import SyncResultsButton from "@/components/SyncResultsButton";
 import TournamentGroupList from "@/components/TournamentGroupList";
+import BulkResyncRegieButton from "@/components/BulkResyncRegieButton";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,11 @@ export default async function AdminTournamentsPage({
       <TournamentGroupList
         groups={groups}
         hrefForTournament={(id) => `/admin/tournaments/${id}/regie`}
+        renderGroupExtra={(group) => (
+          <BulkResyncRegieButton
+            targets={group.cards.filter((c) => c.regieActive).map((c) => ({ id: c.id, name: c.name }))}
+          />
+        )}
       />
 
       <AddTournamentForm />

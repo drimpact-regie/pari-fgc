@@ -46,7 +46,7 @@ export default async function Nav() {
                     Invitational / Prestataire
                   </Link>
                   <Link href="/admin/tournaments" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
-                    Admin
+                    Tournoi
                   </Link>
                 </>
               )

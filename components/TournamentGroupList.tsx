@@ -11,9 +11,12 @@ import TournamentBannerCard from "@/components/TournamentBannerCard";
 export default function TournamentGroupList({
   groups,
   hrefForTournament,
+  renderGroupExtra,
 }: {
   groups: TournamentGroupInfo[];
   hrefForTournament: (tournamentId: string) => string;
+  /** Contenu optionnel injecté au-dessus des jeux d'un groupe multi-jeux (ex. bouton "recharger tous les jeux" côté admin, absent côté accueil parieur). */
+  renderGroupExtra?: (group: TournamentGroupInfo) => React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -42,6 +45,7 @@ export default function TournamentGroupList({
               </span>
             </summary>
             <div className="flex flex-col gap-3 p-3">
+              {renderGroupExtra?.(group)}
               {group.cards.map((card) => (
                 <TournamentBannerCard key={card.id} tournament={card} href={hrefForTournament(card.id)} />
               ))}
