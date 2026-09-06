@@ -148,32 +148,3 @@ export function buildTemplatedBracketColumns(
     return { key: col.key, label: col.label, side: col.side, matches: slotMatches };
   });
 }
-
-/**
- * Position verticale (fraction 0..1) de chaque match de chaque round du
- * camp des vainqueurs (ou de tout le bracket en simple élimination,
- * puisqu'il n'y a alors qu'un seul camp) — algorithme standard de l'arbre
- * binaire d'un bracket : le round le plus large (les premiers matchs) est
- * espacé également, puis la position de chaque match d'un round suivant
- * est la MOYENNE des positions des deux matchs du round précédent dont il
- * découle (slot 2i et 2i+1) — c'est cette moyenne qui produit le tracé en
- * "chevrons" caractéristique d'un bracket, pas un simple espacement égal
- * par colonne (qui donnerait des lignes de connexion qui ne s'alignent
- * pas). Utilisé pour dessiner les lignes de connexion (voir
- * components/InvitationalBracket.tsx) ; ne s'applique pas au camp des
- * perdants (voir sa doc dans ce même composant).
- */
-export function computeWinnersColumnYFractions(winnersMatchSlots: number[]): number[][] {
-  const result: number[][] = [];
-  let previous: number[] | null = null;
-
-  for (const count of winnersMatchSlots) {
-    const fractions: number[] = previous
-      ? Array.from({ length: count }, (_, i) => (previous![2 * i] + previous![2 * i + 1]) / 2)
-      : Array.from({ length: count }, (_, i) => (i + 0.5) / count);
-    result.push(fractions);
-    previous = fractions;
-  }
-
-  return result;
-}

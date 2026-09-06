@@ -32,6 +32,11 @@ const updateSchema = z.object({
   // Match affiché sur l'overlay OBS "match en cours" — désignation
   // indépendante de activeChatMatchId (voir /overlay/invitational/[eventId]/match).
   activeOverlayMatchId: z.string().trim().optional(),
+  // Inverse l'affichage J1/J2 du match actuellement à l'écran (voir
+  // ActiveOverlayMatchSwapButton) — toujours remis à false quand
+  // activeOverlayMatchId change (voir plus bas), donc jamais envoyé en
+  // même temps que ce dernier par l'UI.
+  activeOverlayMatchSwapped: z.boolean().optional(),
   // Constantes du calcul d'estimation d'horaires (Rundown), reproduites
   // côté site pour l'encart "prochains matchs" de l'overlay bracket — voir
   // lib/invitationalRundown.ts.
@@ -112,7 +117,15 @@ export async function PATCH(
         ? { activeChatMatchId: parsed.data.activeChatMatchId || null }
         : {}),
       ...(parsed.data.activeOverlayMatchId !== undefined
-        ? { activeOverlayMatchId: parsed.data.activeOverlayMatchId || null }
+        ? {
+            activeOverlayMatchId: parsed.data.activeOverlayMatchId || null,
+            // Changer (ou retirer) le match affiché ne doit jamais hériter
+            // de l'inversion J1/J2 du match précédemment désigné.
+            activeOverlayMatchSwapped: false,
+          }
+        : {}),
+      ...(parsed.data.activeOverlayMatchSwapped !== undefined
+        ? { activeOverlayMatchSwapped: parsed.data.activeOverlayMatchSwapped }
         : {}),
       ...(parsed.data.rundownMinSecondsPerRound !== undefined
         ? { rundownMinSecondsPerRound: parsed.data.rundownMinSecondsPerRound }

@@ -40,7 +40,10 @@ export default async function InvitationalEventPage({
 
   const { eventId } = await params;
   const event = await prisma.invitationalEvent.findUnique({ where: { id: eventId } });
-  if (!event) notFound();
+  // "Mode régie" (voir InvitationalEvent.linkedTournamentId) : coquille
+  // interne pour un tournoi start.gg, jamais une destination publique — les
+  // paris restent sur l'économie/le chat du tournoi lié, pas ici.
+  if (!event || event.linkedTournamentId) notFound();
 
   const [matches, userBets, currentUser] = await Promise.all([
     prisma.invitationalMatch.findMany({

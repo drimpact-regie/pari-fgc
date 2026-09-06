@@ -1,0 +1,384 @@
+import { describe, expect, it } from "vitest";
+
+import { StartggApiError, type StartggEntrantDetails, type StartggPhase, type StartggSet } from "./startgg";
+import {
+  buildRegieMatchesFromPhases,
+  buildRegieMatchesFromSets,
+  mapBracketTypeToInvitationalFormat,
+  regieOverallFormat,
+  regieStartggErrorMessage,
+  type RegiePhaseSets,
+} from "./tournamentRegie";
+
+function makeSet(overrides: Partial<StartggSet> & { id: string }): StartggSet {
+  return {
+    round: 1,
+    fullRoundText: "Round 1",
+    state: 1,
+    winnerId: null,
+    slots: [],
+    totalGames: 3,
+    phaseGroupId: null,
+    poolLabel: null,
+    phaseId: "phase1",
+    phaseName: "Bracket",
+    ...overrides,
+  };
+}
+
+function slot(name: string | null, entrantId?: string) {
+  return { entrant: name ? { id: entrantId ?? name, name, playerId: null } : null, seedNum: null, score: null };
+}
+
+describe("mapBracketTypeToInvitationalFormat", () => {
+  it("maps known start.gg bracket types", () => {
+    expect(mapBracketTypeToInvitationalFormat("SINGLE_ELIMINATION")).toBe("BRACKET_SINGLE");
+    expect(mapBracketTypeToInvitationalFormat("DOUBLE_ELIMINATION")).toBe("BRACKET_DOUBLE");
+    expect(mapBracketTypeToInvitationalFormat("ROUND_ROBIN")).toBe("ROUND_ROBIN");
+    expect(mapBracketTypeToInvitationalFormat("SWISS")).toBe("SWISS");
+  });
+
+  it("falls back to LIST for unknown/null bracket types", () => {
+    expect(mapBracketTypeToInvitationalFormat(null)).toBe("LIST");
+    expect(mapBracketTypeToInvitationalFormat("CUSTOM_SCHEDULE")).toBe("LIST");
+  });
+});
+
+function makePhase(overrides: Partial<StartggPhase> & { id: string }): StartggPhase {
+  return { name: "Phase", bracketType: null, ...overrides };
+}
+
+describe("buildRegieMatchesFromSets", () => {
+  it("orders single-elimination rounds by round number and fills TBD placeholders", () => {
+    const sets: StartggSet[] = [
+      makeSet({ id: "sf", round: 2, fullRoundText: "Final", slots: [slot(null), slot(null)] }),
+      makeSet({ id: "qf1", round: 1, fullRoundText: "Round 1", slots: [slot("Alice"), slot("Bob")] }),
+      makeSet({ id: "qf2", round: 1, fullRoundText: "Round 1", slots: [slot("Carl"), slot("Dana")] }),
+    ];
+
+    const matches = buildRegieMatchesFromSets(sets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Round 1", "Round 1", "Final"]);
+    expect(matches[0]).toMatchObject({ orderIndex: 0, competitorA: { name: "Alice" }, competitorB: { name: "Bob" } });
+    expect(matches[1]).toMatchObject({ orderIndex: 1, competitorA: { name: "Carl" }, competitorB: { name: "Dana" } });
+    expect(matches[2].competitorA).toBeNull();
+    expect(matches[2].placeholderA).toContain("Final");
+  });
+
+  it("orders double-elimination as winners, losers, grand final, then grand final reset", () => {
+    const sets: StartggSet[] = [
+      makeSet({ id: "gfr", round: 4, fullRoundText: "Grand Final Reset", slots: [slot("Alice"), slot("Carl")] }),
+      makeSet({ id: "gf", round: 4, fullRoundText: "Grand Final", slots: [slot("Alice"), slot("Carl")] }),
+      makeSet({ id: "l1", round: -1, fullRoundText: "Losers Round 1", slots: [slot("Bob"), slot("Dana")] }),
+      makeSet({ id: "w1", round: 1, fullRoundText: "Winners Round 1", slots: [slot("Alice"), slot("Bob")] }),
+      makeSet({ id: "w2", round: 2, fullRoundText: "Winners Final", slots: [slot("Alice"), slot("Carl")] }),
+    ];
+
+    const matches = buildRegieMatchesFromSets(sets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual([
+      "Winners Round 1",
+      "Winners Final",
+      "Losers Round 1",
+      "Grand Final",
+      "Grand Final Reset",
+    ]);
+    // orderIndex doit être global (strictement croissant across rounds), pas
+    // remis à zéro à chaque round — sinon buildInvitationalBracketColumns
+    // (qui trie tous les matchs par orderIndex pour ordonner les colonnes)
+    // ne peut plus distinguer "Winners Round 1" de "Grand Final Reset" et
+    // affiche les colonnes dans un ordre arbitraire.
+    expect(matches.map((m) => m.orderIndex)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("fills tag/countryCode from the entrant details lookup when available", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", round: 1, fullRoundText: "Round 1", slots: [slot("Alice"), slot("Bob")] })];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["Alice", { id: "Alice", tag: "AOE", countryCode: "FR" }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Alice", tag: "AOE", countryCode: "FR" });
+    // Bob n'a pas d'entrée dans le lookup (ex. requête best-effort qui n'a
+    // pas trouvé son prefix/pays) — tag/pays restent vides plutôt que de planter.
+    expect(matches[0].competitorB).toMatchObject({ name: "Bob", tag: null, countryCode: null });
+  });
+
+  it("leaves tag/countryCode null when no entrant details lookup is given (default)", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", slots: [slot("Alice"), slot("Bob")] })];
+
+    const matches = buildRegieMatchesFromSets(sets);
+
+    expect(matches[0].competitorA).toMatchObject({ tag: null, countryCode: null });
+  });
+
+  it("strips a known tag prefix already baked into entrant.name by start.gg, so it isn't shown twice", () => {
+    // start.gg renvoie déjà "<prefix> | <pseudo>" dans entrant.name quand un
+    // prefix est renseigné — une fois ce même prefix affiché séparément
+    // (élément "tag" de l'overlay), le laisser dans le nom l'affichait en
+    // double ("REBOOT" seul, puis "REBOOT | Paulee" juste en dessous).
+    const sets: StartggSet[] = [
+      makeSet({ id: "w1", slots: [slot("REBOOT | Paulee", "e1"), slot("LukYdaK", "e2")] }),
+    ];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["e1", { id: "e1", tag: "REBOOT", countryCode: null }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Paulee", tag: "REBOOT" });
+    // Pas de tag connu pour LukYdaK : le nom reste tel quel, rien à retirer.
+    expect(matches[0].competitorB).toMatchObject({ name: "LukYdaK", tag: null });
+  });
+
+  it("leaves the name untouched if it doesn't actually start with the known tag prefix", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", slots: [slot("Paulee", "e1"), slot(null)] })];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["e1", { id: "e1", tag: "REBOOT", countryCode: null }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Paulee", tag: "REBOOT" });
+  });
+});
+
+describe("buildRegieMatchesFromPhases", () => {
+  it("leaves labels unprefixed and reuses buildRegieMatchesFromSets ordering for a single phase", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Round 1", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Round 1"]);
+  });
+
+  it("prefixes group labels with the phase name once several phases contribute matches", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Pool A", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "b1", phaseId: "bracket", round: 1, fullRoundText: "Winners Round 1", slots: [slot("Alice"), slot("Carl")] }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Poules — Pool A", "Bracket — Winners Round 1"]);
+    // orderIndex reste global sur l'ensemble des étapes, pas remis à zéro à
+    // la deuxième étape — même raison que dans buildRegieMatchesFromSets.
+    expect(matches.map((m) => m.orderIndex)).toEqual([0, 1]);
+  });
+
+  it("skips phases without any generated set entirely (not yet seeded)", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: pools,
+        sets: [
+          makeSet({ id: "p1", phaseId: "pools", round: 1, fullRoundText: "Pool A", slots: [slot("Alice"), slot("Bob")] }),
+        ],
+      },
+      { phase: bracket, sets: [] },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    // Une seule étape a effectivement des matchs : pas de préfixe, comme un
+    // event mono-étape (le bracket pas encore seedé ne doit pas polluer les
+    // libellés de la seule étape déjà disponible).
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Pool A"]);
+  });
+
+  it("splits a phase's sets by pool when several parallel pools share the same phase (e.g. Pool D1/D2)", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({
+            id: "d1-1",
+            phaseId: "bracket",
+            poolLabel: "D1",
+            round: 1,
+            fullRoundText: "Winners Round 1",
+            slots: [slot("Alice"), slot("Bob")],
+          }),
+          makeSet({
+            id: "d2-1",
+            phaseId: "bracket",
+            poolLabel: "D2",
+            round: 1,
+            fullRoundText: "Winners Round 1",
+            slots: [slot("Carl"), slot("Dana")],
+          }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    // Sans le découpage par poule, les deux matchs se retrouveraient tous
+    // les deux étiquetés "Winners Round 1" (même round, même étape) — le
+    // bracket-tree ne pourrait alors plus distinguer les deux poules.
+    expect(matches.map((m) => m.groupLabel)).toEqual(["Poule D1 — Winners Round 1", "Poule D2 — Winners Round 1"]);
+  });
+
+  it("prefers the pool name over the phase name when both apply (never combines the two)", () => {
+    // Cas réel rencontré : étape "Bracket" à deux poules (D1/D2) menant vers
+    // une étape "Top 8" séparée sans poule, toutes deux avec des matchs — le
+    // préfixe reste "Poule D1"/"Poule D2" (pas "Bracket — Poule D1"), et
+    // "Top 8" seul pour l'étape sans poule, pour que la page admin puisse
+    // replier "Poule D1" / "Poule D2" / "Top 8" comme trois groupes de même
+    // niveau plutôt que d'imbriquer un niveau "Bracket" superflu.
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const top8 = makePhase({ id: "top8", name: "Top 8", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "d1-1", phaseId: "bracket", poolLabel: "D1", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "d2-1", phaseId: "bracket", poolLabel: "D2", fullRoundText: "Winners Round 1" }),
+        ],
+      },
+      {
+        phase: top8,
+        sets: [makeSet({ id: "t8-1", phaseId: "top8", poolLabel: null, fullRoundText: "Winners Round 1" })],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual([
+      "Poule D1 — Winners Round 1",
+      "Poule D2 — Winners Round 1",
+      "Top 8 — Winners Round 1",
+    ]);
+  });
+
+  it("keeps a shared (non-pooled) set from the same phase, like a common Grand Final, instead of dropping it", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      {
+        phase: bracket,
+        sets: [
+          makeSet({ id: "d1-1", phaseId: "bracket", poolLabel: "D1", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "d2-1", phaseId: "bracket", poolLabel: "D2", fullRoundText: "Winners Round 1" }),
+          makeSet({ id: "gf", phaseId: "bracket", poolLabel: null, round: 4, fullRoundText: "Grand Final" }),
+        ],
+      },
+    ];
+
+    const matches = buildRegieMatchesFromPhases(phasesWithSets);
+
+    expect(matches.map((m) => m.groupLabel)).toEqual([
+      "Poule D1 — Winners Round 1",
+      "Poule D2 — Winners Round 1",
+      "Grand Final",
+    ]);
+  });
+});
+
+describe("regieOverallFormat", () => {
+  it("uses the single phase's format when only one phase has matches", () => {
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [{ phase: bracket, sets: [makeSet({ id: "b1" })] }];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("keeps the shared bracket format when a bracket is split across several same-type phases", () => {
+    const top64 = makePhase({ id: "top64", name: "Top 64", bracketType: "DOUBLE_ELIMINATION" });
+    const top8 = makePhase({ id: "top8", name: "Top 8", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: top64, sets: [makeSet({ id: "s1" })] },
+      { phase: top8, sets: [makeSet({ id: "s2" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("falls back to LIST when pools and bracket phases (different types) both have matches", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [makeSet({ id: "p1" })] },
+      { phase: bracket, sets: [makeSet({ id: "b1" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("LIST");
+  });
+
+  it("ignores phases without matches when checking for a shared type", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [] },
+      { phase: bracket, sets: [makeSet({ id: "b1" })] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("falls back to the declared phase types when the tournament hasn't started yet (no phase has any set)", () => {
+    // Activation avant le début du tournoi : aucun match seedé nulle part,
+    // mais le bracketType de l'étape est déjà connu côté start.gg — pas de
+    // raison de retomber sur LIST faute de mieux, ce qui bloquerait le
+    // premier resync une fois le tournoi réellement lancé (changement de
+    // format refusé sur un event déjà actif).
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [{ phase: bracket, sets: [] }];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("BRACKET_DOUBLE");
+  });
+
+  it("still falls back to LIST when nothing has started AND declared phase types already differ", () => {
+    const pools = makePhase({ id: "pools", name: "Poules", bracketType: "ROUND_ROBIN" });
+    const bracket = makePhase({ id: "bracket", name: "Bracket", bracketType: "DOUBLE_ELIMINATION" });
+    const phasesWithSets: RegiePhaseSets[] = [
+      { phase: pools, sets: [] },
+      { phase: bracket, sets: [] },
+    ];
+
+    expect(regieOverallFormat(phasesWithSets)).toBe("LIST");
+  });
+});
+
+describe("regieStartggErrorMessage", () => {
+  it("gives an actionable retry message for a 429 (rate limit) that survived callStartGG's own retries", () => {
+    const err = new StartggApiError("L'API start.gg a répondu 429 Too Many Requests.", "body", 429);
+
+    const message = regieStartggErrorMessage(err);
+
+    expect(message).toMatch(/limité les appels/i);
+    expect(message).toMatch(/Activer le mode régie/);
+  });
+
+  it("passes through the original message for a non-429 start.gg error", () => {
+    const err = new StartggApiError("Erreur GraphQL renvoyée par start.gg.", { some: "detail" });
+
+    expect(regieStartggErrorMessage(err)).toBe("Erreur GraphQL renvoyée par start.gg.");
+  });
+
+  it("falls back to a generic message for a non-StartggApiError", () => {
+    expect(regieStartggErrorMessage(new Error("boom"))).toBe("Impossible de contacter start.gg.");
+  });
+});

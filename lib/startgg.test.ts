@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   detectBracketReset,
+  getEventEntrantDetails,
+  getEventPhases,
+  getUpcomingSets,
+  getUpcomingSetsIncludingPreviews,
   isLateBracketRound,
   isLateBracketSet,
   isMvcLocked,
@@ -9,6 +13,8 @@ import {
   isPreviewSetId,
   isSetOpenForBetting,
   SET_STATE,
+  StartggApiError,
+  tournamentSlugFromEventSlug,
   type StartggEntrant,
   type StartggSet,
 } from "./startgg";
@@ -239,5 +245,211 @@ describe("isNotableMatch", () => {
       ],
     });
     expect(isNotableMatch(set, new Set(["1"]))).toBe(true);
+  });
+});
+
+describe("tournamentSlugFromEventSlug", () => {
+  it("strips the /event/... suffix", () => {
+    expect(tournamentSlugFromEventSlug("tournament/ceo-2026/event/marvel-tokon-fighting-souls")).toBe(
+      "tournament/ceo-2026",
+    );
+  });
+
+  it("returns the input unchanged when there is no /event/ segment", () => {
+    expect(tournamentSlugFromEventSlug("tournament/ceo-2026")).toBe("tournament/ceo-2026");
+  });
+});
+
+/**
+ * Régression pour le 429 rencontré à l'activation du mode régie
+ * (lib/tournamentRegie.ts) : callStartGG (privé, exercé ici via
+ * getEventPhases — la plus simple de ses appelantes, une seule requête sans
+ * pagination) doit absorber un 429 transitoire tout seul, et transmettre le
+ * code HTTP quand la limite persiste au-delà des tentatives automatiques,
+ * pour que l'appelant puisse distinguer ce cas (réessayer aide) d'une vraie
+ * panne.
+ */
+describe("callStartGG retry/backoff on 429 (exercé via getEventPhases)", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("retries a transient 429 and eventually succeeds", async () => {
+    const rateLimited = new Response("rate limited", { status: 429 });
+    const ok = new Response(
+      JSON.stringify({
+        data: { event: { phases: [{ id: 1, name: "Bracket", bracketType: "SINGLE_ELIMINATION" }] } },
+      }),
+      { status: 200 },
+    );
+    const fetchMock = vi.fn().mockResolvedValueOnce(rateLimited).mockResolvedValueOnce(ok);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = getEventPhases("tournament/x/event/y");
+    await vi.runAllTimersAsync();
+    const phases = await promise;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(phases).toEqual([{ id: "1", name: "Bracket", bracketType: "SINGLE_ELIMINATION" }]);
+  });
+
+  it("gives up after exhausting retries and surfaces a StartggApiError carrying the 429 status", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () =>
+      new Response("rate limited", { status: 429, statusText: "Too Many Requests" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = getEventPhases("tournament/x/event/y").catch((err) => err);
+    await vi.runAllTimersAsync();
+    const err = await promise;
+
+    expect(err).toBeInstanceOf(StartggApiError);
+    expect((err as StartggApiError).status).toBe(429);
+    // Au moins un essai initial + une tentative automatique — la valeur
+    // exacte (RATE_LIMIT_MAX_RETRIES + 1) est un détail d'implémentation de
+    // callStartGG, pas la garantie testée ici.
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Régression pour le "0 match" à l'activation du mode régie sur un bracket
+ * pas encore "démarré" côté start.gg : tant que l'organisateur n'a pas
+ * cliqué sur "Start", TOUS ses sets — y compris un Round 1 déjà entièrement
+ * seedé avec de vrais entrants — sont renvoyés avec un id "preview_", que
+ * getUpcomingSets exclut (à raison, pour le pari). getUpcomingSetsIncludingPreviews
+ * (réservée au mode régie) doit, elle, les garder.
+ */
+describe("getUpcomingSets vs getUpcomingSetsIncludingPreviews", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  function rawSetNode(overrides: { id: string; fullRoundText?: string }) {
+    return {
+      id: overrides.id,
+      round: 1,
+      fullRoundText: overrides.fullRoundText ?? "Winners Round 1",
+      state: 1,
+      winnerId: null,
+      totalGames: 3,
+      slots: [
+        { entrant: { id: "1", name: "Alice" }, seed: { seedNum: 1 }, standing: null },
+        { entrant: { id: "2", name: "Bob" }, seed: { seedNum: 64 }, standing: null },
+      ],
+      phaseGroup: null,
+    };
+  }
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  function mockOnePageOfSets(nodes: ReturnType<typeof rawSetNode>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { event: { sets: { pageInfo: { totalPages: 1 }, nodes } } } }),
+          { status: 200 },
+        ),
+      ),
+    );
+  }
+
+  it("getUpcomingSets drops preview_ sets, even a fully-seeded not-yet-started Round 1", async () => {
+    mockOnePageOfSets([rawSetNode({ id: "preview_123" }), rawSetNode({ id: "456" })]);
+
+    const sets = await getUpcomingSets("tournament/x/event/y");
+
+    expect(sets.map((s) => s.id)).toEqual(["456"]);
+  });
+
+  it("getUpcomingSetsIncludingPreviews keeps them, for the régie import's own use", async () => {
+    mockOnePageOfSets([rawSetNode({ id: "preview_123" }), rawSetNode({ id: "456" })]);
+
+    const sets = await getUpcomingSetsIncludingPreviews("tournament/x/event/y");
+
+    expect(sets.map((s) => s.id)).toEqual(["preview_123", "456"]);
+  });
+});
+
+/**
+ * Préremplissage tag/pays du mode régie (lib/tournamentRegie.ts) depuis la
+ * fiche start.gg de chaque entrant — voir StartggEntrantDetails.
+ */
+describe("getEventEntrantDetails", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  function mockOnePageOfEntrants(nodes: unknown[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { event: { entrants: { pageInfo: { totalPages: 1 }, nodes } } } }),
+          { status: 200 },
+        ),
+      ),
+    );
+  }
+
+  it("reads the per-event prefix as the tag, and a 2-letter location.country as the country code", async () => {
+    mockOnePageOfEntrants([
+      {
+        id: "1",
+        participants: [{ prefix: "AOE", player: { prefix: "OLD", user: { location: { country: "FR" } } } }],
+      },
+    ]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details).toEqual([{ id: "1", tag: "AOE", countryCode: "FR" }]);
+  });
+
+  it("falls back to the player's default prefix when the per-event one is empty", async () => {
+    mockOnePageOfEntrants([{ id: "1", participants: [{ prefix: null, player: { prefix: "DEFAULT", user: null } }] }]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details[0]).toMatchObject({ tag: "DEFAULT" });
+  });
+
+  it("ignores a country value that isn't a clean 2-letter code (e.g. a full country name)", async () => {
+    mockOnePageOfEntrants([
+      { id: "1", participants: [{ prefix: null, player: { prefix: null, user: { location: { country: "France" } } } }] },
+    ]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details[0]).toMatchObject({ countryCode: null });
+  });
+
+  it("defaults to null tag/countryCode when an entrant has no participant data at all", async () => {
+    mockOnePageOfEntrants([{ id: "1", participants: null }]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details).toEqual([{ id: "1", tag: null, countryCode: null }]);
   });
 });

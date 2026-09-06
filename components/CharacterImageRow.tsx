@@ -20,6 +20,8 @@ export default function CharacterImageRow({ character }: { character: Character 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   function handleUrlChange(value: string) {
     setUrl(value);
@@ -48,6 +50,26 @@ export default function CharacterImageRow({ character }: { character: Character 
     }
 
     setSaved(true);
+    router.refresh();
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Supprimer "${character.name}" ? Cette action est définitive.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    const res = await fetch(`/api/admin/characters/${character.id}`, { method: "DELETE" });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setDeleteError(data.error ?? "Erreur lors de la suppression.");
+      setDeleting(false);
+      return;
+    }
+
     router.refresh();
   }
 
@@ -93,19 +115,35 @@ export default function CharacterImageRow({ character }: { character: Character 
           </p>
         )}
       </td>
-      <td className="px-4 py-2 text-right">
-        <button
-          type="button"
-          className="btn text-xs"
-          style={{
-            background: dirty ? "var(--accent)" : "var(--surface-alt)",
-            color: dirty ? "#0b0d12" : "var(--muted)",
-          }}
-          disabled={saving || (!dirty && !saved)}
-          onClick={handleSave}
-        >
-          {saving ? "..." : saved ? "Enregistré ✓" : "Enregistrer"}
-        </button>
+      <td className="px-4 py-2 text-right whitespace-nowrap">
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="btn text-xs"
+            style={{
+              background: dirty ? "var(--accent)" : "var(--surface-alt)",
+              color: dirty ? "#0b0d12" : "var(--muted)",
+            }}
+            disabled={saving || (!dirty && !saved)}
+            onClick={handleSave}
+          >
+            {saving ? "..." : saved ? "Enregistré ✓" : "Enregistrer"}
+          </button>
+          <button
+            type="button"
+            className="btn text-xs"
+            style={{ background: "var(--surface-alt)", color: "var(--lose)" }}
+            disabled={deleting}
+            onClick={handleDelete}
+          >
+            {deleting ? "..." : "Supprimer"}
+          </button>
+        </div>
+        {deleteError && (
+          <p className="text-xs mt-1" style={{ color: "var(--lose)" }}>
+            {deleteError}
+          </p>
+        )}
       </td>
     </tr>
   );

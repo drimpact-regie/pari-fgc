@@ -7,9 +7,11 @@ import {
   isTop8Command,
   matchCharacterName,
   normalizeForMatch,
+  parseBetTarget,
   parseMvcCommand,
   parseResetCommand,
   parseTop8Target,
+  roundNumberFromText,
 } from "./chatBets";
 
 const ROSTER = [
@@ -123,6 +125,30 @@ describe("isHelpCommand", () => {
   it("does not mistake a real sub-command or player name for the help command", () => {
     expect(isHelpCommand("mvc Magik 3")).toBe(false);
     expect(isHelpCommand("Mulchy")).toBe(false);
+  });
+});
+
+describe("parseBetTarget", () => {
+  it("extracts a round number when prefixed with r<N> or round <N>", () => {
+    expect(parseBetTarget("r1 Kunne")).toEqual({ roundNumber: 1, playerQuery: "Kunne" });
+    expect(parseBetTarget("R2 MKE | Kunne")).toEqual({ roundNumber: 2, playerQuery: "MKE | Kunne" });
+    expect(parseBetTarget("round 3 Kunne")).toEqual({ roundNumber: 3, playerQuery: "Kunne" });
+  });
+
+  it("leaves the target untouched when there is no round prefix", () => {
+    expect(parseBetTarget("Kunne")).toEqual({ roundNumber: null, playerQuery: "Kunne" });
+    expect(parseBetTarget("Rush")).toEqual({ roundNumber: null, playerQuery: "Rush" });
+  });
+});
+
+describe("roundNumberFromText", () => {
+  it("extracts the round number from a start.gg round label", () => {
+    expect(roundNumberFromText("Round 1")).toBe(1);
+    expect(roundNumberFromText("Winners Round 2")).toBe(2);
+  });
+
+  it("returns null when there is no round number in the label", () => {
+    expect(roundNumberFromText("Grand Final")).toBeNull();
   });
 });
 

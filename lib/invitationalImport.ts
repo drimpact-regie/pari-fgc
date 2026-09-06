@@ -22,6 +22,8 @@ export interface ParsedMatch {
   ftGames: number | null;
   roundsPerGame: number | null;
   verifManette: boolean | null;
+  /** Id du set start.gg d'origine — rempli uniquement par le mode régie (lib/tournamentRegie.ts), jamais par un import Excel. */
+  startggSetId: string | null;
 }
 
 export interface ParsedInvitationalImport {
@@ -239,6 +241,7 @@ function parseMatchRows(rows: unknown[][]): ParsedMatch[] {
       ftGames: parseFtGames(cellString(row, columns.ft)),
       roundsPerGame: parseRoundsPerGame(row, columns.roundsParManche),
       verifManette: parseVerifManette(cellString(row, columns.verifManette)),
+      startggSetId: null,
     });
   });
 

@@ -29,6 +29,19 @@ import { ensureUserByTwitchId } from "@/lib/users";
 export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
+  // Le provider Twitch calcule son redirect_uri (callback OAuth) depuis
+  // l'origine de la requête en cours — indispensable ici puisque le site
+  // répond sur deux domaines (impactobet.fr et impactobot.fr, voir
+  // lib/domainRouting.ts) et que chacun doit recevoir un callback qui
+  // pointe vers LUI-MÊME, jamais vers l'autre (sinon "The provided
+  // redirect_uri does not match" ou une session posée sur le mauvais
+  // domaine). Sans trustHost explicite, la détection automatique
+  // (normalement acquise sur Vercel) peut retomber sur une origine par
+  // défaut figée plutôt que l'en-tête Host/X-Forwarded-Host réel de la
+  // requête — le même problème que proxy.ts a dû contourner explicitement
+  // pour sa propre logique de canonicalisation (voir son commentaire sur
+  // req.nextUrl.hostname vs. les en-têtes).
+  trustHost: true,
   providers: [
     Credentials({
       name: "Identifiants",

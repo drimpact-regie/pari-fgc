@@ -1,24 +1,23 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { listTournaments } from "@/lib/tournaments";
+import { listTournaments, groupTournamentsForDisplay } from "@/lib/tournaments";
 import AddTournamentForm from "@/components/AddTournamentForm";
-import TwitchChannelEditor from "@/components/TwitchChannelEditor";
-import TwitchSubscribeButton from "@/components/TwitchSubscribeButton";
+import BulkImportTournamentsForm from "@/components/BulkImportTournamentsForm";
 import SyncResultsButton from "@/components/SyncResultsButton";
-import DeleteTournamentButton from "@/components/DeleteTournamentButton";
-import { computeChannelAuthorizationStatus, type ChannelAuthorizationStatus } from "@/lib/streamerAuthorization";
-
-const STATUS_BADGE: Record<ChannelAuthorizationStatus, { label: (botLogin: string | null) => string; color: string }> = {
-  current: { label: (botLogin) => `Autorisé (${botLogin ?? "bot"})`, color: "var(--win)" },
-  outdated: { label: () => "Ancien compte — à réautoriser", color: "var(--warn)" },
-  unknown: { label: () => "Statut inconnu", color: "var(--muted)" },
-};
+import TournamentGroupList from "@/components/TournamentGroupList";
+import BulkResyncRegieButton from "@/components/BulkResyncRegieButton";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Liste des tournois façon bannières (même style que l'accueil parieur,
+ * voir app/(site)/page.tsx) — cliquer sur un tournoi mène à sa page de
+ * régie ("Gérer le tournoi"), qui centralise désormais les réglages
+ * propres à CE tournoi (chaîne Twitch, autorisation bot, chat betting,
+ * suppression — voir la page régie).
+ */
 export default async function AdminTournamentsPage({
   searchParams,
 }: {
@@ -32,20 +31,8 @@ export default async function AdminTournamentsPage({
   const { twitchConnected, twitchError } = await searchParams;
   const tournaments = await listTournaments();
   const botToken = await prisma.twitchBotToken.findUnique({ where: { id: "singleton" } });
-
-  const channelLogins = Array.from(
-    new Set(
-      tournaments
-        .map((t) => t.twitchChannel?.toLowerCase())
-        .filter((c): c is string => Boolean(c)),
-    ),
-  );
-  const authorizations = channelLogins.length
-    ? await prisma.streamerChannelAuthorization.findMany({
-        where: { twitchLogin: { in: channelLogins } },
-      })
-    : [];
-  const authorizationByChannel = new Map(authorizations.map((a) => [a.twitchLogin, a]));
+  const sorted = [...tournaments].reverse(); // plus récent d'abord
+  const groups = await groupTournamentsForDisplay(sorted);
 
   return (
     <div className="flex flex-col gap-4">
@@ -78,79 +65,18 @@ export default async function AdminTournamentsPage({
         </a>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr
-              className="text-left"
-              style={{ background: "var(--surface-alt)", color: "var(--muted)" }}
-            >
-              <th className="px-4 py-2 font-medium">Nom</th>
-              <th className="px-4 py-2 font-medium">Slug start.gg</th>
-              <th className="px-4 py-2 font-medium">Chaîne Twitch</th>
-              <th className="px-4 py-2 font-medium">Autorisation bot</th>
-              <th className="px-4 py-2 font-medium">Chat betting</th>
-              <th className="px-4 py-2 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tournaments.map((t) => {
-              const authStatus = t.twitchChannel
-                ? computeChannelAuthorizationStatus(
-                    authorizationByChannel.get(t.twitchChannel.toLowerCase()) ?? null,
-                    botToken?.login ?? null,
-                  )
-                : "unknown";
-              const badge = STATUS_BADGE[authStatus];
-
-              return (
-              <tr key={t.id} className="border-t" style={{ borderColor: "var(--border)" }}>
-                <td className="px-4 py-2 font-medium">{t.name}</td>
-                <td className="px-4 py-2 font-mono text-xs" style={{ color: "var(--muted)" }}>
-                  {t.eventSlug}
-                </td>
-                <td className="px-4 py-2">
-                  <TwitchChannelEditor tournamentId={t.id} initialChannel={t.twitchChannel} />
-                </td>
-                <td className="px-4 py-2">
-                  {t.twitchChannel ? (
-                    <span className="text-xs" style={{ color: badge.color }}>
-                      {badge.label(botToken?.login ?? null)}
-                    </span>
-                  ) : (
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      —
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2">
-                  {t.twitchChannel ? (
-                    <TwitchSubscribeButton
-                      tournamentId={t.id}
-                      active={Boolean(t.twitchSubscriptionId)}
-                    />
-                  ) : (
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>
-                      Renseignez une chaîne d&apos;abord
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <div className="flex items-center justify-end gap-3">
-                    <Link href={`/t/${t.id}/matches`} className="underline" style={{ color: "var(--accent)" }}>
-                      Voir
-                    </Link>
-                    <DeleteTournamentButton tournamentId={t.id} tournamentName={t.name} />
-                  </div>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <TournamentGroupList
+        groups={groups}
+        hrefForTournament={(id) => `/admin/tournaments/${id}/regie`}
+        renderGroupExtra={(group) => (
+          <BulkResyncRegieButton
+            targets={group.cards.filter((c) => c.regieActive).map((c) => ({ id: c.id, name: c.name }))}
+          />
+        )}
+      />
 
       <AddTournamentForm />
+      <BulkImportTournamentsForm />
     </div>
   );
 }

@@ -5,6 +5,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import CharacterImageRow from "@/components/CharacterImageRow";
 import AddCharacterForm from "@/components/AddCharacterForm";
+import BulkImportCharactersForm from "@/components/BulkImportCharactersForm";
+import ImportTekken8Button from "@/components/ImportTekken8Button";
+import { listTournaments } from "@/lib/tournaments";
+import { TEKKEN8_GAME_NAME } from "@/lib/tekken8Roster";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +39,9 @@ export default async function AdminCharactersPage({
       })
     : [];
 
+  const tournaments = await listTournaments();
+  const tournamentOptions = [...tournaments].reverse().map((t) => ({ id: t.id, name: t.name }));
+
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -45,6 +52,8 @@ export default async function AdminCharactersPage({
           affiché tant qu&apos;aucune image valide n&apos;est renseignée.
         </p>
       </div>
+
+      {!games.includes(TEKKEN8_GAME_NAME) && <ImportTekken8Button />}
 
       {games.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -99,6 +108,7 @@ export default async function AdminCharactersPage({
       )}
 
       <AddCharacterForm defaultGame={selectedGame} />
+      <BulkImportCharactersForm tournaments={tournamentOptions} />
     </div>
   );
 }

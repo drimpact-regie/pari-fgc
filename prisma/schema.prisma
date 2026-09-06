@@ -61,6 +61,12 @@ model Tournament {
   // start.gg à chaque message (voir lib/matchResults.ts).
   lastResultsCheckAt DateTime?
   createdAt     DateTime @default(now())
+
+  // "Mode régie" (voir InvitationalEvent.linkedTournamentId) : présent une
+  // fois activé par un admin, absent sinon. N'affecte jamais les onglets
+  // Matchs/Joueurs/Top 8/LeaderBet/Le Pari du Parry ni l'économie de paris
+  // existante, tous branchés sur start.gg en direct comme avant.
+  regieEvent InvitationalEvent?
 }
 
 /**
@@ -72,6 +78,37 @@ model AnnouncedSetResult {
   id        String   @id @default(cuid())
   setId     String   @unique
   eventSlug String
+  createdAt DateTime @default(now())
+}
+
+/**
+ * Déduplication des notifications EventSub Twitch (voir
+ * app/api/twitch/webhook/route.ts) : Twitch garantit une livraison "au
+ * moins une fois", pas "exactement une fois" — la même notification (même
+ * Twitch-Eventsub-Message-Id) peut donc arriver plusieurs fois (retry
+ * réseau côté Twitch...). Sans ça, un même "!bet" pouvait être traité deux
+ * fois : la première réussissait, la seconde échouait silencieusement grâce
+ * à la contrainte anti-doublon sur Bet, mais avec un message "tu as déjà
+ * parié" confus juste après le message de succès.
+ */
+model ProcessedWebhookMessage {
+  id        String   @id @default(cuid())
+  messageId String   @unique
+  createdAt DateTime @default(now())
+}
+
+/**
+ * Pont SSO entre impactobet.fr (parieur) et impactobot.fr (streamer/régie) —
+ * voir lib/ssoBridge.ts. Un jeton signé (JWT, courte durée de vie) référence
+ * une ligne ici par `jti` : la ligne est supprimée dès la consommation, donc
+ * son ABSENCE (et pas seulement l'expiration du JWT) est ce qui garantit un
+ * usage strictement unique — un jeton rejoué après consommation échoue même
+ * si sa signature et son expiration sont encore valides.
+ */
+model SsoBridgeToken {
+  id        String   @id @default(cuid())
+  jti       String   @unique
+  userId    String
   createdAt DateTime @default(now())
 }
 
@@ -252,6 +289,27 @@ model StreamerChannelAuthorization {
   updatedAt       DateTime @updatedAt
 }
 
+/**
+ * Liste blanche gérée par un admin : quelles chaînes Twitch ont le droit
+ * d'accéder à l'espace streamer/régie (impactobot.fr) une fois connectées
+ * sur le site. Distinct de StreamerChannelAuthorization (qui suit l'octroi
+ * du scope channel:bot au bot, pas un droit d'accès au site).
+ *
+ * twitchUserId (l'id numérique Twitch, stable) est ce qui sert réellement à
+ * matcher un compte site (User.twitchId) — twitchLogin n'est gardé que pour
+ * l'affichage admin et pour permettre de retrouver l'entrée sans repasser
+ * par l'API Twitch. Résolu via l'API Twitch (lib/twitch.ts,
+ * getTwitchUserByLogin) au moment où un admin saisit le nom de la chaîne,
+ * pour ne jamais dépendre d'une saisie manuelle erronée de l'id.
+ */
+model AuthorizedStreamer {
+  id           String   @id @default(cuid())
+  twitchLogin  String   @unique
+  twitchUserId String   @unique
+  displayName  String
+  createdAt    DateTime @default(now())
+}
+
 model Bet {
   id                    String    @id @default(cuid())
   userId                String
@@ -348,6 +406,13 @@ model InvitationalEvent {
   // indépendante du statut "ouvert au pari" : plusieurs matchs peuvent être
   // en cours en parallèle sur un event, un seul est "à l'écran" à la fois.
   activeOverlayMatchId String?
+  // Inverse l'affichage J1/J2 (nameA/nameB, scoreA/scoreB...) du match
+  // actuellement à l'écran — les joueurs s'installent parfois à l'inverse
+  // de ce qui était prévu côté régie. Ne s'applique qu'au match désigné par
+  // activeOverlayMatchId ; remis à false à chaque changement de match actif
+  // (voir la route PATCH), pour ne jamais hériter par erreur de l'inversion
+  // du match précédent.
+  activeOverlayMatchSwapped Boolean @default(false)
   createdAt             DateTime @default(now())
 
   // Constantes de calcul du Rundown (estimation d'horaires par set),
@@ -403,6 +468,22 @@ model InvitationalEvent {
   // dessiner avant que tous les rounds soient joués.
   bracketOverlayLayout Json?
   bracketSize          Int?
+
+  // "Mode régie" d'un tournoi start.gg (voir Tournament) : cet event
+  // Invitational est la "coquille" interne qui porte le bracket/les
+  // compétiteurs importés depuis start.gg, réutilisant tel quel tout
+  // l'outillage admin/overlay déjà construit pour l'Invitational plutôt que
+  // de le dupliquer. Distinct d'un event Invitational/Prestataire normal :
+  // jamais listé publiquement (voir listInvitationalEvents), jamais
+  // accessible sur sa propre page publique (voir /invitational/[eventId]),
+  // et sans économie de pari propre (twitchChannel volontairement laissé
+  // vide — les paris restent sur l'économie/le chat du Tournament lié).
+  linkedTournamentId String?     @unique
+  // onDelete: Cascade plutôt que le SetNull par défaut : sans ça, supprimer
+  // le Tournament laisserait cette coquille orpheline (linkedTournamentId
+  // redevenu null) réapparaître dans les listes Invitational publiques/admin
+  // (voir listInvitationalEvents, qui exclut justement sur ce critère).
+  linkedTournament Tournament? @relation(fields: [linkedTournamentId], references: [id], onDelete: Cascade)
 
   competitors InvitationalCompetitor[]
   matches     InvitationalMatch[]
@@ -531,6 +612,13 @@ model InvitationalMatch {
   ftGames       Int?
   roundsPerGame Int?
   verifManette  Boolean?
+  // Id du set start.gg d'origine — uniquement rempli pour un match importé
+  // par le mode régie (voir lib/tournamentRegie.ts), jamais pour un import
+  // Excel Invitational classique. Sert à faire correspondre une entrée de
+  // la file d'attente stream (streamQueue, lib/startgg.ts) à SON match
+  // InvitationalMatch, pour le bouton "afficher sur l'overlay" — voir
+  // /admin/tournaments/[tournamentId]/regie.
+  startggSetId  String?
   createdAt     DateTime @default(now())
   resolvedAt    DateTime?
 

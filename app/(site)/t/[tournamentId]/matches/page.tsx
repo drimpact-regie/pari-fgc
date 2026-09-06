@@ -7,7 +7,7 @@ import {
   getCompletedSets,
   getEventPhases,
   getEventTopSeedEntrantIds,
-  getPhaseGroupTopSeeds,
+  getPhaseGroupsTopSeeds,
   getUpcomingSets,
   isLateBracketRound,
   isNotableMatch,
@@ -198,19 +198,15 @@ export default async function MatchesPage({
   const poolGroups = phaseSections
     .flatMap((s) => s.roundGroups)
     .filter((g) => g.phaseGroupId && g.sets.some((s) => s.poolLabel));
-  const seedsByPhaseGroup = new Map<string, StartggSeed[]>(
-    (
-      await Promise.all(
-        poolGroups.map(async (g) => {
-          try {
-            const seeds = await getPhaseGroupTopSeeds(g.phaseGroupId!, 4);
-            return [g.phaseGroupId!, seeds] as const;
-          } catch {
-            return [g.phaseGroupId!, [] as StartggSeed[]] as const;
-          }
-        }),
-      )
-    ).filter(([, seeds]) => seeds.length > 0),
+  // Une seule requête groupée (alias GraphQL) plutôt qu'une requête par
+  // poule : une phase "Round 1" avec des dizaines de poules déclenchait
+  // sinon autant de requêtes start.gg en parallèle à chaque chargement de
+  // page, assez pour dépasser la limite de débit du token dès que plusieurs
+  // parieurs chargeaient la page en même temps (ex. juste avant de placer un
+  // pari, qui revérifie aussi l'état du match auprès de start.gg).
+  const phaseGroupIds = [...new Set(poolGroups.map((g) => g.phaseGroupId!))];
+  const seedsByPhaseGroup = await getPhaseGroupsTopSeeds(phaseGroupIds, 4).catch(
+    () => new Map<string, StartggSeed[]>(),
   );
 
   // Une étape sans set généré côté start.gg n'a encore rien d'accessible (ni

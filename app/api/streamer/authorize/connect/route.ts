@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 
+import { requestOrigin } from "@/lib/domainRouting";
+
 /**
  * Démarre le flux OAuth Twitch self-service par lequel N'IMPORTE QUEL
  * streamer autorise le bot sur sa propre chaîne (scope channel:bot),
@@ -17,15 +19,15 @@ import { randomBytes } from "crypto";
  */
 export async function GET(request: Request) {
   const clientId = process.env.TWITCH_CLIENT_ID;
-  const url = new URL(request.url);
+  const origin = requestOrigin(request);
   if (!clientId) {
     return NextResponse.redirect(
-      new URL("/streamer?authError=TWITCH_CLIENT_ID%20non%20configur%C3%A9.", url.origin),
+      new URL("/streamer?authError=TWITCH_CLIENT_ID%20non%20configur%C3%A9.", origin),
     );
   }
 
   const state = randomBytes(16).toString("hex");
-  const redirectUri = `${url.origin}/api/streamer/authorize/callback`;
+  const redirectUri = `${origin}/api/streamer/authorize/callback`;
 
   const authorizeUrl = new URL("https://id.twitch.tv/oauth2/authorize");
   authorizeUrl.searchParams.set("client_id", clientId);

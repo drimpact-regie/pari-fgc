@@ -26,14 +26,19 @@ import {
   isResetCommand,
   isTop8Command,
   matchCharacterName,
+  parseBetTarget,
   parseMvcCommand,
   parseResetCommand,
   parseTop8Target,
+  roundNumberFromText,
 } from "@/lib/chatBets";
 import {
+  computeTournamentLeaderboardRanks,
   detectNewLateBracketResults,
+  formatLeaderboardClimbMessage,
   formatMatchResultMessage,
   resolveAllPendingBets,
+  type WonBetPayout,
 } from "@/lib/matchResults";
 
 interface ChatMessageEvent {
@@ -63,13 +68,19 @@ function accountLinkHint(): string {
  * Nomenclature unifiée sous "!bet" (avec "!top8" gardé en alias historique) :
  * envoyée sur "!bet", "!bet aide" ou "!bet help".
  */
-const HELP_TEXT =
-  "Paris chat : !bet <joueur> (vainqueur d'un match) | " +
-  "!bet mvc <personnage> <0-8> (MVC) | !bet reset oui|non (reset de bracket) | " +
-  "!bet top8 <j1, j2, ..., j8> (pronostic top 8, alias : !top8). " +
-  "Compte Twitch lié requis pour mvc/reset" +
-  (SITE_URL ? ` : ${SITE_URL}/account` : "") +
-  ".";
+// Un message par ligne (plutôt qu'une seule longue phrase à rallonge séparée
+// par des "|") : dans le chat Twitch, un message unique trop long se
+// retrouve tassé sur plusieurs lignes rewrappées sans rapport avec les
+// commandes elles-mêmes — illisible. Envoyées séparément (voir leur usage
+// plus bas), chaque commande tient sur sa propre ligne dans le chat.
+const HELP_LINES = [
+  "📋 Commandes de paris chat :",
+  '!bet [r<round>] <joueur> — vainqueur d\'un match (précise le round si ambigu, ex. "!bet r1 <joueur>")',
+  "!bet mvc <personnage> <0-8> — MVC",
+  "!bet reset oui|non — reset de bracket",
+  "!bet top8 <j1>, <j2>, ..., <j8> — pronostic Top 8 (alias : !top8)",
+  `Compte Twitch lié requis pour mvc/reset/top8${SITE_URL ? ` : ${SITE_URL}/account` : ""}`,
+];
 
 const BET_COMMANDS = ["!bet", "!pari"];
 const TOP8_COMMANDS = ["!top8", "!top 8"];
@@ -123,17 +134,31 @@ function openEntrants(set: StartggSet): StartggEntrant[] {
  * Échec silencieux (solde insuffisant, déjà parié sur ce match...), comme le
  * reste du "!bet" classique qui ne répond jamais dans le chat.
  */
+/**
+ * Résultat d'une tentative de pari chat, pour permettre au bot de répondre
+ * avec la vraie raison de l'échec (voir formatBetResultMessage) au lieu de
+ * rester muet — auparavant totalement invisible en cas de solde
+ * insuffisant, de doublon, etc., ce qui rendait impossible de distinguer
+ * "le pari a échoué pour X raison" de "le message n'est jamais arrivé
+ * jusqu'au serveur".
+ */
+type ChatBetResult = "ok" | "insufficient_balance" | "already_bet" | "preview_set" | "error";
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return Boolean(err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "P2002");
+}
+
 async function placeChatBet(
   set: StartggSet,
   chosenEntrant: { id: string; name: string },
   eventSlug: string,
   chatter: { id: string; login: string; displayName: string },
-) {
+): Promise<ChatBetResult> {
   // Garde-fou en plus du filtrage à la source (getUpcomingSets) : un match
   // "prévisionnel" (voir isPreviewSetId) n'est pas un vrai match résolvable
   // — peut arriver ici via tournament.activeChatSetId, qui contourne ce
   // filtrage en interrogeant start.gg directement par id.
-  if (isPreviewSetId(set.id)) return;
+  if (isPreviewSetId(set.id)) return "preview_set";
 
   const bettor = await ensureChatBettor(chatter);
 
@@ -143,8 +168,8 @@ async function placeChatBet(
   );
   const { oddsA: odds } = computeMatchOdds(chosenSlot?.seedNum ?? null, opponentSlot?.seedNum ?? null);
 
-  await prisma
-    .$transaction(async (tx) => {
+  try {
+    await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({ where: { id: bettor.id }, select: { exBalance: true } });
       if (!user || user.exBalance < DEFAULT_CHAT_BET_STAKE) {
         throw new Error("insufficient_balance");
@@ -170,8 +195,13 @@ async function placeChatBet(
           odds,
         },
       });
-    })
-    .catch(() => undefined); // solde insuffisant ou déjà parié sur ce match : on ignore silencieusement
+    });
+    return "ok";
+  } catch (err) {
+    if (err instanceof Error && err.message === "insufficient_balance") return "insufficient_balance";
+    if (isUniqueConstraintError(err)) return "already_bet";
+    return "error";
+  }
 }
 
 /** Rapproche un nom tapé en chat (nom OU tag) du bon compétiteur, même tolérance que matchEntrant. */
@@ -206,13 +236,13 @@ async function placeInvitationalChatBet(
   match: InvitationalMatch & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor },
   chosen: InvitationalCompetitor,
   chatter: { id: string; login: string; displayName: string },
-) {
+): Promise<ChatBetResult> {
   const bettor = await ensureChatBettor(chatter);
   const { oddsA, oddsB } = computeStreakOdds(match.competitorA.currentStreak, match.competitorB.currentStreak);
   const odds = chosen.id === match.competitorA.id ? oddsA : oddsB;
 
-  await prisma
-    .$transaction(async (tx) => {
+  try {
+    await prisma.$transaction(async (tx) => {
       const user = await tx.user.findUnique({
         where: { id: bettor.id },
         select: { invitationalExBalance: true },
@@ -237,8 +267,29 @@ async function placeInvitationalChatBet(
           odds,
         },
       });
-    })
-    .catch(() => undefined);
+    });
+    return "ok";
+  } catch (err) {
+    if (err instanceof Error && err.message === "insufficient_balance") return "insufficient_balance";
+    if (isUniqueConstraintError(err)) return "already_bet";
+    return "error";
+  }
+}
+
+/** Message envoyé dans le chat après une tentative de "!bet <joueur>", quel que soit le résultat. */
+function formatBetResultMessage(displayName: string, entrantName: string, result: ChatBetResult): string {
+  switch (result) {
+    case "ok":
+      return `✅ @${displayName} pari enregistré sur ${entrantName} (${DEFAULT_CHAT_BET_STAKE} Ex).`;
+    case "insufficient_balance":
+      return `@${displayName} solde insuffisant (il faut ${DEFAULT_CHAT_BET_STAKE} Ex).`;
+    case "already_bet":
+      return `@${displayName} tu as déjà parié sur ce match.`;
+    case "preview_set":
+      return `@${displayName} ce match n'est pas encore prêt pour les paris, réessaie un peu plus tard.`;
+    case "error":
+      return `@${displayName} erreur lors de l'enregistrement du pari, réessaie.`;
+  }
 }
 
 /**
@@ -253,7 +304,16 @@ async function handleInvitationalBetCommand(
   target: string,
   event: { id: string; activeChatMatchId: string | null },
   chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
 ) {
+  const respond = async (
+    match: InvitationalMatch & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor },
+    chosen: InvitationalCompetitor,
+  ) => {
+    const result = await placeInvitationalChatBet(match, chosen, chatter);
+    await reply(broadcasterId, formatBetResultMessage(chatter.displayName, chosen.name, result));
+  };
+
   if (event.activeChatMatchId) {
     const activeMatch = await prisma.invitationalMatch.findUnique({
       where: { id: event.activeChatMatchId },
@@ -262,10 +322,9 @@ async function handleInvitationalBetCommand(
     if (activeMatch?.status === "OPEN" && activeMatch.competitorA && activeMatch.competitorB) {
       const chosen = matchInvitationalCompetitor(target, [activeMatch.competitorA, activeMatch.competitorB]);
       if (chosen) {
-        await placeInvitationalChatBet(
+        await respond(
           { ...activeMatch, competitorA: activeMatch.competitorA, competitorB: activeMatch.competitorB },
           chosen,
-          chatter,
         );
         return;
       }
@@ -289,10 +348,21 @@ async function handleInvitationalBetCommand(
     .filter((c): c is { match: (typeof openMatches)[number] & { competitorA: InvitationalCompetitor; competitorB: InvitationalCompetitor }; chosen: InvitationalCompetitor } => c !== null);
 
   // Comme pour les tournois classiques : le nom doit désigner un compétiteur
-  // dans exactement un match ouvert, sinon c'est ambigu (ou introuvable).
-  if (candidates.length !== 1) return;
+  // dans exactement un match ouvert, sinon c'est ambigu (ou introuvable) —
+  // désormais annoncé dans le chat plutôt que silencieusement ignoré.
+  if (candidates.length === 0) {
+    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${target}".`);
+    return;
+  }
+  if (candidates.length > 1) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${target}", précise le nom complet.`,
+    );
+    return;
+  }
 
-  await placeInvitationalChatBet(candidates[0].match, candidates[0].chosen, chatter);
+  await respond(candidates[0].match, candidates[0].chosen);
 }
 
 /**
@@ -306,7 +376,18 @@ async function handleBetCommand(
   target: string,
   tournament: { eventSlug: string; activeChatSetId: string | null },
   chatter: { id: string; login: string; displayName: string },
+  broadcasterId: string,
 ) {
+  const respond = async (set: StartggSet, chosen: { id: string; name: string }) => {
+    const result = await placeChatBet(set, chosen, tournament.eventSlug, chatter);
+    await reply(broadcasterId, formatBetResultMessage(chatter.displayName, chosen.name, result));
+  };
+
+  // Un joueur peut avoir plusieurs sets "non commencés" ouverts en parallèle
+  // (ex. plusieurs rounds de poule déjà générés côté start.gg) : accepte un
+  // préfixe optionnel "r1"/"round 1" pour désambiguïser (voir parseBetTarget).
+  const { roundNumber, playerQuery } = parseBetTarget(target);
+
   if (tournament.activeChatSetId) {
     let activeSet: StartggSet | null = null;
     try {
@@ -315,9 +396,9 @@ async function handleBetCommand(
       activeSet = null;
     }
     if (activeSet && activeSet.state === SET_STATE.NOT_STARTED) {
-      const chosen = matchEntrant(target, openEntrants(activeSet));
+      const chosen = matchEntrant(playerQuery, openEntrants(activeSet));
       if (chosen) {
-        await placeChatBet(activeSet, chosen, tournament.eventSlug, chatter);
+        await respond(activeSet, chosen);
         return;
       }
     }
@@ -327,22 +408,42 @@ async function handleBetCommand(
   try {
     allSets = await getUpcomingSets(tournament.eventSlug);
   } catch {
+    await reply(broadcasterId, `@${chatter.displayName} impossible de récupérer les matchs, réessaie plus tard.`);
     return;
   }
 
-  const candidates = allSets
-    .filter((set) => set.state === SET_STATE.NOT_STARTED)
+  let openSets = allSets.filter((set) => set.state === SET_STATE.NOT_STARTED);
+  if (roundNumber !== null) {
+    const filtered = openSets.filter((set) => roundNumberFromText(set.fullRoundText) === roundNumber);
+    // Si rien ne correspond à ce round (libellé différent, faute de frappe),
+    // on retombe sur tous les sets ouverts plutôt que de bloquer le pari.
+    if (filtered.length > 0) openSets = filtered;
+  }
+
+  const candidates = openSets
     .map((set) => {
-      const chosen = matchEntrant(target, openEntrants(set));
+      const chosen = matchEntrant(playerQuery, openEntrants(set));
       return chosen ? { set, chosen } : null;
     })
     .filter((c): c is { set: StartggSet; chosen: { id: string; name: string } } => c !== null);
 
   // Le nom doit désigner un joueur dans exactement un match ouvert, sinon
-  // c'est ambigu (ou introuvable) et on ignore silencieusement.
-  if (candidates.length !== 1) return;
+  // c'est ambigu (ou introuvable) — désormais annoncé dans le chat plutôt
+  // que silencieusement ignoré (impossible auparavant de distinguer "le
+  // message n'est jamais arrivé" de "le pari a échoué pour telle raison").
+  if (candidates.length === 0) {
+    await reply(broadcasterId, `@${chatter.displayName} aucun match ouvert ne correspond à "${playerQuery}".`);
+    return;
+  }
+  if (candidates.length > 1) {
+    await reply(
+      broadcasterId,
+      `@${chatter.displayName} plusieurs matchs ouverts correspondent à "${playerQuery}", précise avec le round (ex. "!bet r1 ${playerQuery}").`,
+    );
+    return;
+  }
 
-  await placeChatBet(candidates[0].set, candidates[0].chosen, tournament.eventSlug, chatter);
+  await respond(candidates[0].set, candidates[0].chosen);
 }
 
 /** !bet top8 (alias !top8) — pari "Le Pari du Parry", répond dans le chat comme mvc/reset. */
@@ -580,16 +681,60 @@ async function checkAndAnnounceResults(
     data: { lastResultsCheckAt: now },
   });
 
-  await resolveAllPendingBets().catch(() => undefined);
+  // Instantané du classement LeaderBet de CE tournoi avant résolution, pour
+  // détecter une progression juste après (voir announceLeaderboardClimbs) —
+  // resolveAllPendingBets() résout les paris de TOUS les tournois en une
+  // seule fois, donc pris à part plutôt qu'à l'intérieur.
+  const ranksBefore = await computeTournamentLeaderboardRanks(tournament.eventSlug);
+  const resolution = await resolveAllPendingBets().catch(() => null);
 
   const [completedSets, topSeedEntrantIds] = await Promise.all([
     getCompletedSets(tournament.eventSlug),
     getEventTopSeedEntrantIds(tournament.eventSlug).catch(() => new Set<string>()),
   ]);
   const results = await detectNewLateBracketResults(tournament, completedSets, topSeedEntrantIds);
-  if (results.length === 0) return;
+  if (results.length > 0) {
+    await reply(broadcasterId, formatMatchResultMessage(results));
+  }
 
-  await reply(broadcasterId, formatMatchResultMessage(results));
+  if (resolution) {
+    await announceLeaderboardClimbs(tournament, ranksBefore, resolution.wonPayouts, broadcasterId);
+  }
+}
+
+/**
+ * Annonce dans le chat les parieurs de CE tournoi dont le rang LeaderBet
+ * s'améliore suite à cette résolution — uniquement une vraie progression
+ * (rang connu avant ET meilleur après), jamais la simple apparition d'un
+ * nouveau parieur sans rang de référence (sinon un tout premier pari gagné
+ * déclencherait toujours l'alerte).
+ */
+async function announceLeaderboardClimbs(
+  tournament: { eventSlug: string },
+  ranksBefore: Map<string, { rank: number; points: number }>,
+  wonPayouts: WonBetPayout[],
+  broadcasterId: string,
+) {
+  const relevant = wonPayouts.filter((w) => w.eventSlug === tournament.eventSlug);
+  if (relevant.length === 0) return;
+
+  const payoutByUser = new Map<string, number>();
+  for (const w of relevant) {
+    payoutByUser.set(w.userId, (payoutByUser.get(w.userId) ?? 0) + w.payout);
+  }
+
+  const ranksAfter = await computeTournamentLeaderboardRanks(tournament.eventSlug);
+
+  for (const [userId, payout] of payoutByUser) {
+    const before = ranksBefore.get(userId);
+    const after = ranksAfter.get(userId);
+    if (!before || !after || after.rank >= before.rank) continue;
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
+    if (!user) continue;
+
+    await reply(broadcasterId, formatLeaderboardClimbMessage(user.username, payout, after));
+  }
 }
 
 export async function POST(request: Request) {
@@ -633,6 +778,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Twitch livre en "au moins une fois" : la même notification (même
+  // Twitch-Eventsub-Message-Id) peut arriver plusieurs fois — sans ça, un
+  // même "!bet" pouvait être traité deux fois (la seconde tentative
+  // échouant silencieusement grâce à la contrainte anti-doublon sur Bet,
+  // mais avec un message "tu as déjà parié" confus juste après le message
+  // de succès). Le create() échoue sur une violation de contrainte unique
+  // si ce messageId a déjà été vu — traité comme "déjà traité", pas comme
+  // une erreur.
+  const alreadyProcessed = await prisma.processedWebhookMessage
+    .create({ data: { messageId } })
+    .then(() => false)
+    .catch(() => true);
+  if (alreadyProcessed) {
+    return NextResponse.json({ ok: true });
+  }
+
   const event = body.event as ChatMessageEvent;
   const text = event.message.text;
   const broadcasterId = event.broadcaster_user_id;
@@ -666,7 +827,9 @@ export async function POST(request: Request) {
   // "!bet" seul, "!bet aide" ou "!bet help" : liste des commandes, sans
   // avoir besoin d'un tournoi en cours.
   if (betTarget !== null && isHelpCommand(betTarget)) {
-    await reply(broadcasterId, HELP_TEXT);
+    for (const line of HELP_LINES) {
+      await reply(broadcasterId, line);
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -688,7 +851,7 @@ export async function POST(request: Request) {
     // Invitational/Prestataire (pas de bracket start.gg) — seul le pari
     // classique "!bet <joueur>" s'y applique.
     if (invitationalEvent && betTarget !== null && !isParrySubCommand) {
-      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter);
+      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter, broadcasterId);
     } else if (isParrySubCommand) {
       await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
     }
@@ -702,7 +865,7 @@ export async function POST(request: Request) {
   } else if (betTarget !== null && isTop8Command(betTarget)) {
     await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
   } else if (betTarget !== null) {
-    await handleBetCommand(betTarget, tournament, chatter);
+    await handleBetCommand(betTarget, tournament, chatter, broadcasterId);
   } else if (top8Target !== null) {
     await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
   }

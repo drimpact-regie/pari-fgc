@@ -41,3 +41,47 @@ export async function PATCH(
 
   return NextResponse.json({ character });
 }
+
+/**
+ * Supprime un personnage — pour nettoyer les doublons issus d'un import
+ * groupé (voir /api/admin/characters/bulk-import), ex. un nom complet
+ * ("Alisa Bosconovitch") laissé vide en double du nom court retenu comme
+ * convention ("Alisa"). Bloqué (409) si des paris MVC existent déjà dessus
+ * (contrainte de clé étrangère, MvcBet.characterId n'est jamais nullable) —
+ * plutôt que de casser silencieusement l'historique de paris déjà résolus.
+ */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ characterId: string }> },
+) {
+  const session = await auth();
+  if (!session?.user?.isAdmin) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+  }
+
+  const { characterId } = await params;
+
+  const existing = await prisma.character.findUnique({ where: { id: characterId } });
+  if (!existing) {
+    return NextResponse.json({ error: "Personnage introuvable." }, { status: 404 });
+  }
+
+  try {
+    await prisma.character.delete({ where: { id: characterId } });
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "P2003"
+    ) {
+      return NextResponse.json(
+        { error: "Impossible de supprimer : des paris existent déjà sur ce personnage." },
+        { status: 409 },
+      );
+    }
+    throw err;
+  }
+
+  return NextResponse.json({ deleted: true });
+}

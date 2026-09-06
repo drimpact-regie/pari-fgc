@@ -7,8 +7,19 @@ import {
   type ParsedInvitationalImport,
 } from "@/lib/invitationalImport";
 
+/**
+ * Exclut les events "mode régie" (voir InvitationalEvent.linkedTournamentId)
+ * : ce sont des coquilles internes réutilisant le modèle de données
+ * Invitational pour un tournoi start.gg, jamais des events
+ * Invitational/Prestataire réels — ils n'ont rien à faire dans la liste
+ * publique ni dans la liste admin, gérés depuis la page du tournoi qui les
+ * a créés (voir lib/tournamentRegie.ts).
+ */
 export async function listInvitationalEvents(): Promise<InvitationalEvent[]> {
-  return prisma.invitationalEvent.findMany({ orderBy: { eventDate: "desc" } });
+  return prisma.invitationalEvent.findMany({
+    where: { linkedTournamentId: null },
+    orderBy: { eventDate: "desc" },
+  });
 }
 
 export async function getInvitationalEvent(id: string): Promise<InvitationalEvent | null> {
@@ -31,18 +42,37 @@ export async function listInvitationalEventsForOwner(ownerUserId: string): Promi
  * jamais laisser un event à moitié importé si quelque chose échoue en
  * cours de route.
  */
+// Défaut Prisma (5s) trop court pour un import "mode régie" d'un bracket
+// complet (jusqu'à plusieurs dizaines de matchs, un create/update
+// séquentiel par match — voir populateOrMergeEventMatches) : un import
+// Excel Invitational classique reste largement dans les clous, mais un gros
+// tournoi start.gg dépassait le délai, la transaction se faisant fermer par
+// la base en cours de route (message Prisma trompeur : erreur "transaction
+// not found" plutôt qu'un timeout explicite).
+const LARGE_IMPORT_TRANSACTION_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
+
 export async function createInvitationalEvent(input: {
   name: string;
   eventDate: Date;
   parsed: ParsedInvitationalImport;
+  /** Mode régie (voir lib/tournamentRegie.ts) : lie cet event au Tournament start.gg dont il reprend le bracket. */
+  linkedTournamentId?: string;
 }): Promise<InvitationalEvent> {
-  return prisma.$transaction(async (tx) => {
-    const event = await tx.invitationalEvent.create({
-      data: { name: input.name, eventDate: input.eventDate, format: input.parsed.format },
-    });
-    await populateOrMergeEventMatches(tx, event.id, input.parsed);
-    return event;
-  });
+  return prisma.$transaction(
+    async (tx) => {
+      const event = await tx.invitationalEvent.create({
+        data: {
+          name: input.name,
+          eventDate: input.eventDate,
+          format: input.parsed.format,
+          linkedTournamentId: input.linkedTournamentId,
+        },
+      });
+      await populateOrMergeEventMatches(tx, event.id, input.parsed);
+      return event;
+    },
+    LARGE_IMPORT_TRANSACTION_OPTIONS,
+  );
 }
 
 /**
@@ -107,7 +137,10 @@ export async function importMatchesIntoInvitationalEvent(
     );
   }
 
-  return prisma.$transaction((tx) => populateOrMergeEventMatches(tx, eventId, parsed));
+  return prisma.$transaction(
+    (tx) => populateOrMergeEventMatches(tx, eventId, parsed),
+    LARGE_IMPORT_TRANSACTION_OPTIONS,
+  );
 }
 
 /**
@@ -151,24 +184,62 @@ async function populateOrMergeEventMatches(
   ]);
 
   const existingMatchByKey = new Map<string, (typeof existingMatches)[number]>();
+  // Un match "mode régie" se retrouve d'abord par son startggSetId (stable,
+  // indépendant de orderIndex) plutôt que par (groupLabel, orderIndex) : ce
+  // dernier a changé de sens en cours de route (voir buildRegieMatchesFromSets,
+  // qui utilisait un index local par round avant correction) — matcher
+  // uniquement par la clé aurait fait passer une resynchronisation pour un
+  // import "tout nouveau" et créé des doublons plutôt que de mettre à jour
+  // les matchs existants.
+  const existingMatchBySetId = new Map<string, (typeof existingMatches)[number]>();
   for (const match of existingMatches) {
     existingMatchByKey.set(matchImportKey(match.groupLabel, match.orderIndex), match);
+    if (match.startggSetId) existingMatchBySetId.set(match.startggSetId, match);
   }
 
-  const competitorIdByName = new Map<string, string>();
+  const competitorByName = new Map<string, { id: string; tag: string | null; countryCode: string | null }>();
   for (const competitor of existingCompetitors) {
-    competitorIdByName.set(normalizeCompetitorKey(competitor.name), competitor.id);
+    competitorByName.set(normalizeCompetitorKey(competitor.name), {
+      id: competitor.id,
+      tag: competitor.tag,
+      countryCode: competitor.countryCode,
+    });
   }
 
+  /**
+   * Pour un compétiteur déjà présent, ne COMPLÈTE que ce qui manque encore
+   * (tag/pays actuellement vides) plutôt que d'ignorer purement et
+   * simplement les valeurs du nouvel import, comme avant ce correctif — un
+   * event activé en mode régie AVANT l'ajout du préremplissage tag/pays
+   * (voir getEventEntrantDetails) gardait sinon ses compétiteurs figés sans
+   * tag/pays pour toujours, une resynchronisation ne faisant que réutiliser
+   * l'id existant sans jamais relire les nouvelles valeurs. Ne jamais
+   * écraser une valeur déjà non vide : le mode régie récupère tag/pays en
+   * best-effort (une requête qui échoue partiellement ne doit pas effacer
+   * une valeur connue d'une resync précédente), et un admin a pu corriger le
+   * tag/pays à la main depuis l'onglet Matchs.
+   */
   async function resolveCompetitorId(competitor: ParsedCompetitor | null): Promise<string | null> {
     if (!competitor) return null;
     const key = normalizeCompetitorKey(competitor.name);
-    const existingId = competitorIdByName.get(key);
-    if (existingId) return existingId;
+    const existing = competitorByName.get(key);
+    if (existing) {
+      const nextTag = existing.tag ?? competitor.tag;
+      const nextCountryCode = existing.countryCode ?? competitor.countryCode;
+      if (nextTag !== existing.tag || nextCountryCode !== existing.countryCode) {
+        await tx.invitationalCompetitor.update({
+          where: { id: existing.id },
+          data: { tag: nextTag, countryCode: nextCountryCode },
+        });
+        existing.tag = nextTag;
+        existing.countryCode = nextCountryCode;
+      }
+      return existing.id;
+    }
     const created = await tx.invitationalCompetitor.create({
       data: { eventId, name: competitor.name, tag: competitor.tag, countryCode: competitor.countryCode },
     });
-    competitorIdByName.set(key, created.id);
+    competitorByName.set(key, { id: created.id, tag: competitor.tag, countryCode: competitor.countryCode });
     return created.id;
   }
 
@@ -176,7 +247,9 @@ async function populateOrMergeEventMatches(
 
   for (const match of parsed.matches) {
     const key = matchImportKey(match.groupLabel, match.orderIndex);
-    const existing = existingMatchByKey.get(key);
+    const existing = match.startggSetId
+      ? (existingMatchBySetId.get(match.startggSetId) ?? existingMatchByKey.get(key))
+      : existingMatchByKey.get(key);
 
     if (existing) {
       const locked =
@@ -185,6 +258,19 @@ async function populateOrMergeEventMatches(
         existing.scoreB != null ||
         existing.winnerId != null;
       if (locked) {
+        // La progression déjà faite (compétiteurs, score, vainqueur) ne
+        // doit jamais être touchée par une resync — mais orderIndex/
+        // startggSetId sont de la pure métadonnée de position, pas de la
+        // progression : les laisser figés sur un match déjà ouvert/joué
+        // empêchait tout match verrouillé de bénéficier de la correction
+        // d'ordre (voir buildRegieMatchesFromSets), laissant le bracket
+        // affiché dans un ordre mi-corrigé, mi-ancien après resync.
+        if (match.startggSetId && (existing.orderIndex !== match.orderIndex || existing.startggSetId !== match.startggSetId)) {
+          await tx.invitationalMatch.update({
+            where: { id: existing.id },
+            data: { orderIndex: match.orderIndex, startggSetId: match.startggSetId },
+          });
+        }
         summary.skippedLocked++;
         continue;
       }
@@ -197,6 +283,7 @@ async function populateOrMergeEventMatches(
         where: { id: existing.id },
         data: {
           groupLabel: match.groupLabel,
+          orderIndex: match.orderIndex,
           competitorAId,
           placeholderA: match.placeholderA,
           competitorBId,
@@ -204,6 +291,7 @@ async function populateOrMergeEventMatches(
           ftGames: match.ftGames,
           roundsPerGame: match.roundsPerGame,
           verifManette: match.verifManette,
+          startggSetId: match.startggSetId,
         },
       });
       summary.updated++;
@@ -224,6 +312,7 @@ async function populateOrMergeEventMatches(
           ftGames: match.ftGames,
           roundsPerGame: match.roundsPerGame,
           verifManette: match.verifManette,
+          startggSetId: match.startggSetId,
         },
       });
       summary.created++;

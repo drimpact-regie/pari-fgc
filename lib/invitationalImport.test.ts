@@ -39,6 +39,7 @@ describe("parseInvitationalWorkbook — bracket format", () => {
       ftGames: null,
       roundsPerGame: null,
       verifManette: null,
+      startggSetId: null,
     });
     // Empty tag/country cells become null, not empty strings.
     expect(result.matches[1].competitorA).toEqual({ name: "Kayos", tag: null, countryCode: "US" });

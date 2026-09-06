@@ -19,11 +19,34 @@ export class StartggApiError extends Error {
   constructor(
     message: string,
     public readonly details?: unknown,
+    /** Code HTTP de la réponse start.gg, quand l'erreur vient d'une réponse
+     * non-ok (absent pour une erreur réseau/GraphQL/config) — permet aux
+     * appelants de distinguer un 429 (limite de débit, réessayer aide) d'une
+     * vraie panne sans avoir à parser le texte du message. */
+    public readonly status?: number,
   ) {
     super(message);
     this.name = "StartggApiError";
   }
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Nombre de tentatives supplémentaires en cas de 429 (limite de débit
+ * start.gg), et plafond du backoff exponentiel entre deux tentatives.
+ * Relevé de 2 à 4 tentatives après le 429 rencontré à l'activation du mode
+ * régie (lib/tournamentRegie.ts) : cet import peut à lui seul déclencher
+ * jusqu'à une dizaine de requêtes (une par étape du tournoi, plus la
+ * pagination des sets à venir/terminés) dans un intervalle court — un budget
+ * de 2 tentatives (soit ~1,2s de backoff cumulé dans le pire cas) s'épuisait
+ * trop vite si plusieurs de ces requêtes tombaient sur la même fenêtre de
+ * limite. Le plafond de 2s évite qu'un appel interactif (ex. placer un pari)
+ * qui passe par ce même point central n'attende, lui, une dizaine de
+ * secondes avant d'échouer.
+ */
+const RATE_LIMIT_MAX_RETRIES = 4;
+const RATE_LIMIT_MAX_BACKOFF_MS = 2000;
 
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
@@ -37,42 +60,61 @@ async function callStartGG<T>(
     );
   }
 
-  let res: Response;
-  try {
-    res = await fetch(STARTGG_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-      // Cache côté serveur Next.js pour ne pas marteler l'API start.gg à
-      // chaque chargement de page par un des ~30 parieurs.
-      next: { revalidate: STARTGG_CACHE_SECONDS },
-    });
-  } catch (err) {
-    throw new StartggApiError(
-      "Impossible de joindre l'API start.gg (réseau).",
-      err,
-    );
-  }
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(STARTGG_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, variables }),
+        // Cache côté serveur Next.js pour ne pas marteler l'API start.gg à
+        // chaque chargement de page par un des ~30 parieurs.
+        next: { revalidate: STARTGG_CACHE_SECONDS },
+      });
+    } catch (err) {
+      throw new StartggApiError(
+        "Impossible de joindre l'API start.gg (réseau).",
+        err,
+      );
+    }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new StartggApiError(
-      `L'API start.gg a répondu ${res.status} ${res.statusText}.`,
-      text,
-    );
-  }
+    if (res.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+      // start.gg limite le débit par token, pas par requête individuelle :
+      // un pic de charge (plusieurs parieurs en même temps) peut déclencher
+      // un 429 ponctuel qui se résorbe seul en quelques centaines de ms.
+      // On respecte l'en-tête Retry-After s'il est fourni, sinon un backoff
+      // court avant de réessayer plutôt que de faire échouer immédiatement
+      // une action utilisateur (ex. placer un pari) pour un blocage transitoire.
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const retryAfterMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : NaN;
+      const backoffMs = Number.isFinite(retryAfterMs)
+        ? retryAfterMs
+        : Math.min(400 * 2 ** attempt, RATE_LIMIT_MAX_BACKOFF_MS);
+      await sleep(backoffMs);
+      continue;
+    }
 
-  const json = (await res.json()) as { data?: T; errors?: unknown };
-  if (json.errors) {
-    throw new StartggApiError("Erreur GraphQL renvoyée par start.gg.", json.errors);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new StartggApiError(
+        `L'API start.gg a répondu ${res.status} ${res.statusText}.`,
+        text,
+        res.status,
+      );
+    }
+
+    const json = (await res.json()) as { data?: T; errors?: unknown };
+    if (json.errors) {
+      throw new StartggApiError("Erreur GraphQL renvoyée par start.gg.", json.errors);
+    }
+    if (!json.data) {
+      throw new StartggApiError("Réponse start.gg vide.");
+    }
+    return json.data;
   }
-  if (!json.data) {
-    throw new StartggApiError("Réponse start.gg vide.");
-  }
-  return json.data;
 }
 
 // --- Types -----------------------------------------------------------------
@@ -82,6 +124,19 @@ export interface StartggEntrant {
   name: string;
   /** Identifiant joueur stable (participants.player.id), pour croiser son historique. */
   playerId: string | null;
+}
+
+/**
+ * Tag/équipe et pays d'un entrant tels que renseignés sur start.gg (fiche
+ * joueur/bracket), pour préremplir les mêmes champs côté mode régie plutôt
+ * que de les laisser vides à la charge de l'admin — voir getEventEntrantDetails.
+ */
+export interface StartggEntrantDetails {
+  id: string;
+  /** "prefix" (tag/équipe/sponsor) start.gg, tel qu'affiché avant le pseudo sur le bracket. */
+  tag: string | null;
+  /** Code pays ISO 3166-1 alpha-2 (ex. "FR"), si le champ start.gg renvoyé en a bien la forme — voir normalizeEntrantDetails. */
+  countryCode: string | null;
 }
 
 export interface StartggSetSlot {
@@ -131,6 +186,15 @@ export interface StartggSeed {
 export interface StartggPhase {
   id: string;
   name: string;
+  /**
+   * Type de bracket start.gg pour cette étape (ex. "SINGLE_ELIMINATION",
+   * "DOUBLE_ELIMINATION", "ROUND_ROBIN", "SWISS"...), null si non exposé —
+   * sert au mode régie (lib/tournamentRegie.ts) pour choisir le format
+   * Invitational équivalent. Valeurs de l'enum non vérifiées contre l'API
+   * réelle depuis cet environnement (pas d'accès réseau sortant) ; à
+   * confirmer sur la première activation en conditions réelles.
+   */
+  bracketType: string | null;
 }
 
 export interface StartggStanding {
@@ -156,6 +220,18 @@ export interface StartggEventInfo {
   bannerUrl: string | null;
   /** Nom du jeu de l'event, sert à filtrer le roster de personnages (MVC). */
   videogameName: string | null;
+  /** Logo/jaquette du jeu (côté start.gg), pour distinguer les jeux d'un même tournoi multi-jeux à la bannière partagée. */
+  videogameImageUrl: string | null;
+}
+
+/** Un jeu (event) au sein d'un tournoi start.gg multi-jeux — voir getTournamentEvents. */
+export interface StartggTournamentEvent {
+  id: string;
+  name: string;
+  /** Slug complet "tournament/xxx/event/yyy", prêt à stocker dans Tournament.eventSlug. */
+  eventSlug: string;
+  videogameName: string | null;
+  numEntrants: number | null;
 }
 
 // --- Requêtes GraphQL --------------------------------------------------------
@@ -169,6 +245,10 @@ const EVENT_INFO_QUERY = /* GraphQL */ `
       numEntrants
       videogame {
         name
+        images {
+          url
+          type
+        }
       }
       tournament {
         name
@@ -288,22 +368,7 @@ const EVENT_PHASES_QUERY = /* GraphQL */ `
       phases {
         id
         name
-      }
-    }
-  }
-`;
-
-/** Meilleurs seeds (têtes de série) d'une poule/phaseGroup start.gg. */
-const PHASE_GROUP_SEEDS_QUERY = /* GraphQL */ `
-  query PhaseGroupSeeds($phaseGroupId: ID!, $perPage: Int!) {
-    phaseGroup(id: $phaseGroupId) {
-      seeds(query: { perPage: $perPage, page: 1 }) {
-        nodes {
-          seedNum
-          entrant {
-            name
-          }
-        }
+        bracketType
       }
     }
   }
@@ -349,6 +414,42 @@ const EVENT_ENTRANTS_QUERY = /* GraphQL */ `
         nodes {
           id
           name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Tag/équipe ("prefix" start.gg) et pays de chaque entrant, pour le mode
+ * régie (voir lib/tournamentRegie.ts) — repli sur le prefix par défaut du
+ * joueur (player.prefix) si le prefix propre à CET event n'est pas renseigné.
+ * Champs non vérifiés contre l'API réelle depuis cet environnement (pas
+ * d'accès réseau sortant) : getEventEntrantDetails est appelée en best-effort
+ * (voir buildRegieImport), une erreur ici ne bloque jamais l'import régie —
+ * seuls tag/pays restent vides comme avant, exactement comme si cette requête
+ * n'existait pas.
+ */
+const EVENT_ENTRANT_DETAILS_QUERY = /* GraphQL */ `
+  query EventEntrantDetails($eventSlug: String!, $page: Int!, $perPage: Int!) {
+    event(slug: $eventSlug) {
+      entrants(query: { perPage: $perPage, page: $page }) {
+        pageInfo {
+          totalPages
+        }
+        nodes {
+          id
+          participants {
+            prefix
+            player {
+              prefix
+              user {
+                location {
+                  country
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -474,7 +575,10 @@ export async function getEventInfo(
       name: string;
       state: string | null;
       numEntrants: number | null;
-      videogame: { name: string } | null;
+      videogame: {
+        name: string;
+        images: { url: string; type: string | null }[] | null;
+      } | null;
       tournament: {
         name: string;
         images: { url: string; type: string | null }[] | null;
@@ -487,6 +591,12 @@ export async function getEventInfo(
   const images = data.event.tournament?.images ?? [];
   const banner = images.find((img) => img.type === "banner") ?? images[0] ?? null;
 
+  // Pas de type d'image particulier connu/vérifié pour un jeu (contrairement
+  // à "banner" pour le tournoi, confirmé via plusieurs events publics) — on
+  // prend simplement la première disponible.
+  const videogameImages = data.event.videogame?.images ?? [];
+  const videogameImage = videogameImages[0] ?? null;
+
   return {
     id: data.event.id,
     name: data.event.name,
@@ -495,6 +605,62 @@ export async function getEventInfo(
     tournamentName: data.event.tournament?.name ?? "",
     bannerUrl: banner?.url ?? null,
     videogameName: data.event.videogame?.name ?? null,
+    videogameImageUrl: videogameImage?.url ?? null,
+  };
+}
+
+const TOURNAMENT_EVENTS_QUERY = /* GraphQL */ `
+  query TournamentEvents($tournamentSlug: String!) {
+    tournament(slug: $tournamentSlug) {
+      name
+      events {
+        id
+        name
+        slug
+        numEntrants
+        videogame {
+          name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Liste tous les jeux (events) d'un tournoi start.gg multi-jeux — pour
+ * l'import groupé côté admin (un gros tournoi type "Ultimate Fighting
+ * Arena" peut contenir une quinzaine de jeux, chacun devenant un
+ * Tournament distinct chez nous, voir /api/admin/tournaments/bulk-import).
+ */
+export async function getTournamentEvents(
+  tournamentSlug: string,
+): Promise<{ tournamentName: string; events: StartggTournamentEvent[] } | null> {
+  const data = await callStartGG<{
+    tournament: {
+      name: string;
+      events:
+        | {
+            id: string;
+            name: string;
+            slug: string;
+            numEntrants: number | null;
+            videogame: { name: string } | null;
+          }[]
+        | null;
+    } | null;
+  }>(TOURNAMENT_EVENTS_QUERY, { tournamentSlug });
+
+  if (!data.tournament) return null;
+
+  return {
+    tournamentName: data.tournament.name,
+    events: (data.tournament.events ?? []).map((event) => ({
+      id: event.id,
+      name: event.name,
+      eventSlug: event.slug,
+      videogameName: event.videogame?.name ?? null,
+      numEntrants: event.numEntrants,
+    })),
   };
 }
 
@@ -508,10 +674,99 @@ export async function getEventPhases(
   eventSlug: string = STARTGG_EVENT_SLUG,
 ): Promise<StartggPhase[]> {
   const data = await callStartGG<{
-    event: { phases: { id: string | number; name: string }[] | null } | null;
+    event: {
+      phases: { id: string | number; name: string; bracketType: string | null }[] | null;
+    } | null;
   }>(EVENT_PHASES_QUERY, { eventSlug });
 
-  return (data.event?.phases ?? []).map((p) => ({ id: String(p.id), name: p.name }));
+  return (data.event?.phases ?? []).map((p) => ({
+    id: String(p.id),
+    name: p.name,
+    bracketType: p.bracketType,
+  }));
+}
+
+/** "tournament/x/event/y" -> "tournament/x" : la file d'attente stream (streamQueue) se demande au niveau du TOURNOI, pas de l'event. */
+export function tournamentSlugFromEventSlug(eventSlug: string): string {
+  const idx = eventSlug.indexOf("/event/");
+  return idx === -1 ? eventSlug : eventSlug.slice(0, idx);
+}
+
+export interface StreamQueueEntry {
+  streamId: string;
+  streamName: string;
+  sets: {
+    id: string;
+    fullRoundText: string;
+    slots: { entrantName: string | null }[];
+  }[];
+}
+
+const STREAM_QUEUE_QUERY = /* GraphQL */ `
+  query StreamQueue($tournamentSlug: String!) {
+    tournament(slug: $tournamentSlug) {
+      streamQueue {
+        stream {
+          id
+          streamName
+        }
+        sets {
+          id
+          fullRoundText
+          slots {
+            entrant {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * File d'attente stream configurée côté start.gg (Streams > Stream Queue) :
+ * quels sets sont assignés à quel stream, dans l'ordre où le TO les a
+ * placés — sert à préparer/activer le prochain match sur l'overlay régie
+ * sans avoir à chercher le bon set dans tout le bracket. Champ non
+ * documenté publiquement (repris de l'usage observé du site start.gg lui-
+ * même) : non vérifié contre l'API réelle depuis cet environnement (pas
+ * d'accès réseau sortant) — à confirmer à la première utilisation en
+ * production. Les appelants doivent traiter un échec comme "aucune info
+ * disponible" plutôt que comme une erreur bloquante (voir son usage dans
+ * /admin/tournaments/[tournamentId]/regie).
+ */
+export async function getStreamQueue(tournamentSlug: string): Promise<StreamQueueEntry[]> {
+  const data = await callStartGG<{
+    tournament: {
+      streamQueue:
+        | {
+            stream: { id: string | number; streamName: string } | null;
+            sets:
+              | {
+                  id: string | number;
+                  fullRoundText: string;
+                  slots: { entrant: { name: string } | null }[] | null;
+                }[]
+              | null;
+          }[]
+        | null;
+    } | null;
+  }>(STREAM_QUEUE_QUERY, { tournamentSlug });
+
+  return (data.tournament?.streamQueue ?? [])
+    .filter((entry): entry is typeof entry & { stream: { id: string | number; streamName: string } } =>
+      Boolean(entry.stream),
+    )
+    .map((entry) => ({
+      streamId: String(entry.stream.id),
+      streamName: entry.stream.streamName,
+      sets: (entry.sets ?? []).map((s) => ({
+        id: String(s.id),
+        fullRoundText: s.fullRoundText,
+        slots: (s.slots ?? []).map((slot) => ({ entrantName: slot.entrant?.name ?? null })),
+      })),
+    }));
 }
 
 /** Forme brute d'un entrant telle que renvoyée par l'API (avant normalisation). */
@@ -577,9 +832,7 @@ function normalizeStanding(standing: RawStartggStanding): StartggStanding {
   return { placement: standing.placement, entrant: normalizeEntrant(standing.entrant) };
 }
 
-export async function getUpcomingSets(
-  eventSlug: string = STARTGG_EVENT_SLUG,
-): Promise<StartggSet[]> {
+async function fetchUpcomingSetsRaw(eventSlug: string): Promise<StartggSet[]> {
   const { nodes } = await fetchAllPages<RawStartggSet>(async (page) => {
     const data = await callStartGG<{
       event: {
@@ -590,11 +843,39 @@ export async function getUpcomingSets(
     if (!data.event?.sets) return null;
     return { nodes: data.event.sets.nodes, totalPages: data.event.sets.pageInfo.totalPages };
   });
+  return nodes.map(normalizeSet);
+}
+
+export async function getUpcomingSets(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggSet[]> {
+  const sets = await fetchUpcomingSetsRaw(eventSlug);
   // Exclus dès la source les matchs "prévisionnels" (voir isPreviewSetId) :
   // ni la sidebar, ni la liste des rounds, ni le pari chat ne doivent
   // jamais les proposer comme pariables, sous peine de créer des paris
   // orphelins qui ne pourront jamais se résoudre.
-  return nodes.map(normalizeSet).filter((set) => !isPreviewSetId(set.id));
+  return sets.filter((set) => !isPreviewSetId(set.id));
+}
+
+/**
+ * Comme getUpcomingSets, mais SANS exclure les sets "prévisionnels" (voir
+ * isPreviewSetId) — réservé au mode régie (lib/tournamentRegie.ts), qui a
+ * besoin du seeding déjà connu même pour un bracket pas encore "démarré"
+ * côté start.gg : tant que l'organisateur n'a pas cliqué sur "Start" sur
+ * start.gg, TOUS les sets d'une étape — y compris le Round 1, déjà
+ * entièrement seedé avec de vrais entrants — sont renvoyés avec un id
+ * "preview_", ce qui faisait disparaître silencieusement toute la phase de
+ * l'import régie. Sans risque ici : le mode régie ne résout jamais un match
+ * automatiquement depuis l'id start.gg d'origine (résolution manuelle par
+ * l'admin, voir InvitationalMatchRow), contrairement au pari classique — un
+ * id "preview_" qui change une fois le bracket réellement lancé sera
+ * simplement re-matché par round/position au prochain resync.
+ * NE JAMAIS utiliser pour une fonctionnalité de pari.
+ */
+export async function getUpcomingSetsIncludingPreviews(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggSet[]> {
+  return fetchUpcomingSetsRaw(eventSlug);
 }
 
 /**
@@ -671,6 +952,49 @@ export async function getEventEntrants(
   return nodes.map((entrant) => normalizeEntrant(entrant)).filter((e): e is StartggEntrant => e !== null);
 }
 
+interface RawStartggEntrantDetails {
+  id: string | number;
+  participants?:
+    | {
+        prefix: string | null;
+        player: { prefix: string | null; user: { location: { country: string | null } | null } | null } | null;
+      }[]
+    | null;
+}
+
+/**
+ * `location.country` n'est acceptée que si elle a la forme d'un code ISO
+ * 3166-1 alpha-2 (ex. "FR") : rien ne garantit que start.gg y renvoie
+ * effectivement un code plutôt qu'un nom de pays en toutes lettres (non
+ * vérifié en conditions réelles, voir EVENT_ENTRANT_DETAILS_QUERY) — un
+ * champ dans un format inattendu est ignoré (countryCode reste vide, comme
+ * si l'entrant n'avait rien renseigné) plutôt que stocké tel quel, pour ne
+ * jamais afficher un mauvais drapeau ou casser CountryBadge en aval.
+ */
+function normalizeEntrantDetails(node: RawStartggEntrantDetails): StartggEntrantDetails {
+  const participant = node.participants?.[0] ?? null;
+  const tag = participant?.prefix || participant?.player?.prefix || null;
+  const rawCountry = participant?.player?.user?.location?.country ?? null;
+  const countryCode = rawCountry && /^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : null;
+  return { id: String(node.id), tag, countryCode };
+}
+
+export async function getEventEntrantDetails(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggEntrantDetails[]> {
+  const { nodes } = await fetchAllPages<RawStartggEntrantDetails>(async (page) => {
+    const data = await callStartGG<{
+      event: {
+        entrants: { pageInfo: { totalPages: number }; nodes: RawStartggEntrantDetails[] } | null;
+      } | null;
+    }>(EVENT_ENTRANT_DETAILS_QUERY, { eventSlug, page, perPage: PER_PAGE });
+
+    if (!data.event?.entrants) return null;
+    return { nodes: data.event.entrants.nodes, totalPages: data.event.entrants.pageInfo.totalPages };
+  });
+  return nodes.map(normalizeEntrantDetails);
+}
+
 /**
  * Palmarès d'un joueur: ses N derniers résultats de tournoi côté start.gg
  * (tous tournois confondus, pas seulement ceux suivis par l'app). Nécessite
@@ -719,23 +1043,65 @@ export async function getSetResult(setId: string): Promise<StartggSet | null> {
   return data.set ? normalizeSet(data.set) : null;
 }
 
-/** Meilleurs seeds (têtes de série) d'une poule, triés du meilleur au moins bon. */
-export async function getPhaseGroupTopSeeds(
-  phaseGroupId: string,
+/**
+ * Meilleurs seeds (têtes de série) de plusieurs poules en une seule requête
+ * GraphQL (via alias, un champ `phaseGroup` par poule) plutôt qu'une requête
+ * par poule. Une page "Round 1" avec des dizaines de poules déclenchait
+ * auparavant autant de requêtes start.gg en parallèle qu'il y a de poules à
+ * chaque chargement de page — assez pour déclencher un 429 (limite de débit
+ * par token, pas par requête) dès que plusieurs parieurs chargeaient la page
+ * en même temps. Ne fait rien si `phaseGroupIds` est vide.
+ */
+export async function getPhaseGroupsTopSeeds(
+  phaseGroupIds: string[],
   limit = 4,
-): Promise<StartggSeed[]> {
-  const data = await callStartGG<{
-    phaseGroup: {
-      seeds: { nodes: { seedNum: number; entrant: { name: string } | null }[] } | null;
-    } | null;
-  }>(PHASE_GROUP_SEEDS_QUERY, { phaseGroupId, perPage: Math.max(limit, 8) });
+): Promise<Map<string, StartggSeed[]>> {
+  if (phaseGroupIds.length === 0) return new Map();
 
-  const nodes = data.phaseGroup?.seeds?.nodes ?? [];
-  return nodes
-    .filter((n): n is { seedNum: number; entrant: { name: string } } => n.entrant !== null)
-    .sort((a, b) => a.seedNum - b.seedNum)
-    .slice(0, limit)
-    .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name }));
+  const query = `
+    query BatchPhaseGroupSeeds(${phaseGroupIds.map((_, i) => `$id${i}: ID!`).join(", ")}, $perPage: Int!) {
+      ${phaseGroupIds
+        .map(
+          (_, i) => `
+      g${i}: phaseGroup(id: $id${i}) {
+        seeds(query: { perPage: $perPage, page: 1 }) {
+          nodes {
+            seedNum
+            entrant {
+              name
+            }
+          }
+        }
+      }`,
+        )
+        .join("\n")}
+    }
+  `;
+  const variables: Record<string, unknown> = { perPage: Math.max(limit, 8) };
+  phaseGroupIds.forEach((id, i) => {
+    variables[`id${i}`] = id;
+  });
+
+  const data = await callStartGG<
+    Record<
+      string,
+      { seeds: { nodes: { seedNum: number; entrant: { name: string } | null }[] } | null } | null
+    >
+  >(query, variables);
+
+  const result = new Map<string, StartggSeed[]>();
+  phaseGroupIds.forEach((id, i) => {
+    const nodes = data[`g${i}`]?.seeds?.nodes ?? [];
+    result.set(
+      id,
+      nodes
+        .filter((n): n is { seedNum: number; entrant: { name: string } } => n.entrant !== null)
+        .sort((a, b) => a.seedNum - b.seedNum)
+        .slice(0, limit)
+        .map((n) => ({ seedNum: n.seedNum, entrantName: n.entrant.name })),
+    );
+  });
+  return result;
 }
 
 /**

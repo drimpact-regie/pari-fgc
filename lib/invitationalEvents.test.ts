@@ -17,6 +17,7 @@ function makeParsed(format: ParsedInvitationalImport["format"]): ParsedInvitatio
         ftGames: null,
         roundsPerGame: null,
         verifManette: null,
+        startggSetId: null,
       },
     ],
   };

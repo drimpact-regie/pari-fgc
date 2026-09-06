@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { buildInvitationalBracketColumns, type InvitationalBracketMatch } from "./invitationalBracket";
+import {
+  abbreviateStageLabel,
+  buildInvitationalBracketColumns,
+  splitSection,
+  type InvitationalBracketMatch,
+} from "./invitationalBracket";
 
 function match(overrides: Partial<InvitationalBracketMatch> & { id: string; orderIndex: number }): InvitationalBracketMatch {
   return {
@@ -53,5 +58,41 @@ describe("buildInvitationalBracketColumns", () => {
     const columns = buildInvitationalBracketColumns(matches);
     expect(columns).toHaveLength(1);
     expect(columns[0].label).toBe("Matchs");
+  });
+});
+
+describe("splitSection", () => {
+  it("extracts the section prefix before the ' — ' separator", () => {
+    expect(splitSection("Poule D2 — Winners Round 1")).toEqual({ section: "Poule D2", roundLabel: "Winners Round 1" });
+  });
+
+  it("returns no section when the label has no separator", () => {
+    expect(splitSection("Winners Round 1")).toEqual({ section: null, roundLabel: "Winners Round 1" });
+  });
+
+  it("keeps only the last two segments of a stale double-prefixed label (phase + pool from before the single-prefix fix)", () => {
+    expect(splitSection("Bracket — Poule D2 — Winners Round 1")).toEqual({
+      section: "Poule D2",
+      roundLabel: "Winners Round 1",
+    });
+  });
+});
+
+describe("abbreviateStageLabel", () => {
+  it("leaves a label with no section prefix untouched", () => {
+    expect(abbreviateStageLabel("Winners Round 1")).toBe("Winners Round 1");
+    expect(abbreviateStageLabel("Grand Final")).toBe("Grand Final");
+  });
+
+  it("abbreviates only the round part of a section-prefixed label", () => {
+    expect(abbreviateStageLabel("Poule D2 — Winners Round 1")).toBe("Poule D2 - WR1");
+    expect(abbreviateStageLabel("Poule D1 — Losers Round 3")).toBe("Poule D1 - LR3");
+    expect(abbreviateStageLabel("Top 8 — Grand Final Reset")).toBe("Top 8 - GFR");
+    expect(abbreviateStageLabel("Top 8 — Grand Final")).toBe("Top 8 - GF");
+    expect(abbreviateStageLabel("Top 8 — Winners Semi-Final")).toBe("Top 8 - WSF");
+  });
+
+  it("drops a stale phase-name prefix from a double-prefixed label", () => {
+    expect(abbreviateStageLabel("Bracket — Poule D2 — Winners Round 1")).toBe("Poule D2 - WR1");
   });
 });

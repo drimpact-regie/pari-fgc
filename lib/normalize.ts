@@ -12,6 +12,19 @@ export function normalizeEventSlug(input: string): string {
 }
 
 /**
+ * Comme normalizeEventSlug, mais pour le TOURNOI entier (racine
+ * "tournament/xxx"), utilisé pour l'import groupé de tous ses jeux (voir
+ * getTournamentEvents dans lib/startgg.ts) — accepte n'importe quelle page
+ * du tournoi collée telle quelle (page "details", un event précis, etc.) et
+ * ne garde que le segment "tournament/xxx".
+ */
+export function normalizeTournamentSlug(input: string): string {
+  const eventSlug = normalizeEventSlug(input);
+  const match = eventSlug.match(/^tournament\/[^/]+/);
+  return match ? match[0] : eventSlug;
+}
+
+/**
  * Accepte soit un nom de chaîne brut ("mk_rza"), soit une URL Twitch
  * complète collée telle quelle.
  */

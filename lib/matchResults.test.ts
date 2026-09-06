@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMatchResultMessage, type CompletedMatchAnnouncement } from "./matchResults";
+import {
+  formatLeaderboardClimbMessage,
+  formatMatchResultMessage,
+  type CompletedMatchAnnouncement,
+} from "./matchResults";
 
 function makeResult(overrides: Partial<CompletedMatchAnnouncement>): CompletedMatchAnnouncement {
   return {
@@ -38,6 +42,23 @@ describe("formatMatchResultMessage", () => {
     ];
     expect(formatMatchResultMessage(results)).toBe(
       "Résultats : Sonicfox a gagné 3-1 contre Supernoon | Player3 a gagné 3-0 contre Player4 !",
+    );
+  });
+});
+
+describe("formatLeaderboardClimbMessage", () => {
+  it("includes a medal for a top-3 rank", () => {
+    expect(formatLeaderboardClimbMessage("K_Rain1", 70, { rank: 3, points: 570 })).toBe(
+      "@K_Rain1 tu as gagné 70 Ex 🥉 K_Rain1 570",
+    );
+    expect(formatLeaderboardClimbMessage("K_Rain1", 70, { rank: 1, points: 570 })).toBe(
+      "@K_Rain1 tu as gagné 70 Ex 🥇 K_Rain1 570",
+    );
+  });
+
+  it("omits the medal outside the top 3", () => {
+    expect(formatLeaderboardClimbMessage("K_Rain1", 70, { rank: 8, points: 570 })).toBe(
+      "@K_Rain1 tu as gagné 70 Ex K_Rain1 570",
     );
   });
 });
