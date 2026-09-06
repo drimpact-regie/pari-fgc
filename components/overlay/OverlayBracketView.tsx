@@ -58,6 +58,7 @@ interface RecentWinner {
 interface OverlayBracketData {
   event: { id: string; name: string; format: string };
   isBracketFormat: boolean;
+  hideBracketOverlayPanel: boolean;
   bracket: BracketColumn[] | null;
   standings: StandingsRow[] | null;
   matches: MatchListEntry[] | null;
@@ -303,28 +304,29 @@ export default function OverlayBracketView({ eventId }: { eventId: string }) {
           containerType: "inline-size",
         }}
       >
-        {data.isBracketFormat && data.bracket ? (
-          <PositionedPanel layout={layout} elementKey="bracket">
-            <InvitationalBracket columns={data.bracket} />
-          </PositionedPanel>
-        ) : (
-          <>
-            {data.standings && data.standings.length > 0 && (
-              <PositionedPanel layout={layout} elementKey="standings">
-                <div className="rounded-lg px-2 py-2" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
-                  <StandingsTable standings={data.standings} />
-                </div>
-              </PositionedPanel>
-            )}
-            {data.matches && data.matches.length > 0 && (
-              <PositionedPanel layout={layout} elementKey="matchList">
-                <div className="rounded-lg px-4 py-3" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
-                  <MatchListTable matches={data.matches} />
-                </div>
-              </PositionedPanel>
-            )}
-          </>
-        )}
+        {!data.hideBracketOverlayPanel &&
+          (data.isBracketFormat && data.bracket ? (
+            <PositionedPanel layout={layout} elementKey="bracket">
+              <InvitationalBracket columns={data.bracket} />
+            </PositionedPanel>
+          ) : (
+            <>
+              {data.standings && data.standings.length > 0 && (
+                <PositionedPanel layout={layout} elementKey="standings">
+                  <div className="rounded-lg px-2 py-2" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
+                    <StandingsTable standings={data.standings} />
+                  </div>
+                </PositionedPanel>
+              )}
+              {data.matches && data.matches.length > 0 && (
+                <PositionedPanel layout={layout} elementKey="matchList">
+                  <div className="rounded-lg px-4 py-3" style={{ background: "rgba(11,13,18,0.72)", backdropFilter: "blur(4px)" }}>
+                    <MatchListTable matches={data.matches} />
+                  </div>
+                </PositionedPanel>
+              )}
+            </>
+          ))}
 
         <Ticker upcoming={data.upcoming} recentWinners={data.recentWinners} />
       </div>

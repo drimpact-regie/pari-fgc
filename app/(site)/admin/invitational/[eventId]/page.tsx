@@ -11,6 +11,7 @@ import InvitationalOverlayPresetManager from "@/components/InvitationalOverlayPr
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
 import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBracketOverlayLayoutEditor";
 import InvitationalBracketSizeEditor from "@/components/InvitationalBracketSizeEditor";
+import InvitationalHideBracketPanelToggle from "@/components/InvitationalHideBracketPanelToggle";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
@@ -327,6 +328,10 @@ export default async function AdminInvitationalEventPage({
           {isInvitationalBracketFormat(event.format) && (
             <InvitationalBracketSizeEditor eventId={event.id} initialSize={event.bracketSize} />
           )}
+
+          <div className="card p-4">
+            <InvitationalHideBracketPanelToggle eventId={event.id} hidden={event.hideBracketOverlayPanel} />
+          </div>
 
           {/* "bracket" (arbre entier) pour les formats bracket, "standings"/
               "matchList" pour les autres — voir lib/invitationalBracketOverlayLayout.ts. */}

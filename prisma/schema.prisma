@@ -507,6 +507,12 @@ model InvitationalEvent {
   // dessiner avant que tous les rounds soient joués.
   bracketOverlayLayout Json?
   bracketSize          Int?
+  // Masque l'encadré principal (arbre de bracket, ou classement/liste de
+  // matchs pour les formats sans bracket) de l'overlay "bracket/classement",
+  // en ne laissant que le bandeau défilant du bas (prochains matchs +
+  // gagnants de paris) — utile quand l'arbre complet prend trop de place à
+  // l'écran mais que le bandeau reste souhaité.
+  hideBracketOverlayPanel Boolean @default(false)
 
   // "Mode régie" d'un tournoi start.gg (voir Tournament) : cet event
   // Invitational est la "coquille" interne qui porte le bracket/les
