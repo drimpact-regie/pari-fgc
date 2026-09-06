@@ -87,7 +87,7 @@ const BET_COMMANDS = ["!bet", "!pari"];
 const TOP8_COMMANDS = ["!top8", "!top 8"];
 
 /** Réponse envoyée quand une fonctionnalité a été désactivée depuis /admin/chatbot. */
-function DISABLED_FEATURE_MESSAGE(displayName: string): string {
+function formatDisabledFeatureMessage(displayName: string): string {
   return `@${displayName} cette fonctionnalité de paris chat est temporairement désactivée.`;
 }
 
@@ -877,7 +877,7 @@ export async function POST(request: Request) {
       if (settings.invitationalBetEnabled) {
         await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter, broadcasterId);
       } else {
-        await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+        await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
       }
     } else if (isParrySubCommand) {
       await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
@@ -889,31 +889,31 @@ export async function POST(request: Request) {
     if (settings.mvcBetEnabled) {
       await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);
     } else {
-      await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
     }
   } else if (betTarget !== null && isResetCommand(betTarget)) {
     if (settings.resetBetEnabled) {
       await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
     } else {
-      await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
     }
   } else if (betTarget !== null && isTop8Command(betTarget)) {
     if (settings.top8BetEnabled) {
       await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
     } else {
-      await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
     }
   } else if (betTarget !== null) {
     if (settings.classicBetEnabled) {
       await handleBetCommand(betTarget, tournament, chatter, broadcasterId);
     } else {
-      await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
     }
   } else if (top8Target !== null) {
     if (settings.top8BetEnabled) {
       await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
     } else {
-      await reply(broadcasterId, DISABLED_FEATURE_MESSAGE(chatter.displayName));
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
     }
   }
 
