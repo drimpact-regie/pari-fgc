@@ -126,6 +126,19 @@ export interface StartggEntrant {
   playerId: string | null;
 }
 
+/**
+ * Tag/équipe et pays d'un entrant tels que renseignés sur start.gg (fiche
+ * joueur/bracket), pour préremplir les mêmes champs côté mode régie plutôt
+ * que de les laisser vides à la charge de l'admin — voir getEventEntrantDetails.
+ */
+export interface StartggEntrantDetails {
+  id: string;
+  /** "prefix" (tag/équipe/sponsor) start.gg, tel qu'affiché avant le pseudo sur le bracket. */
+  tag: string | null;
+  /** Code pays ISO 3166-1 alpha-2 (ex. "FR"), si le champ start.gg renvoyé en a bien la forme — voir normalizeEntrantDetails. */
+  countryCode: string | null;
+}
+
 export interface StartggSetSlot {
   entrant: StartggEntrant | null;
   /** Tête de série de cet entrant pour la poule/phase de ce set (favori = plus petit nombre). */
@@ -401,6 +414,42 @@ const EVENT_ENTRANTS_QUERY = /* GraphQL */ `
         nodes {
           id
           name
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * Tag/équipe ("prefix" start.gg) et pays de chaque entrant, pour le mode
+ * régie (voir lib/tournamentRegie.ts) — repli sur le prefix par défaut du
+ * joueur (player.prefix) si le prefix propre à CET event n'est pas renseigné.
+ * Champs non vérifiés contre l'API réelle depuis cet environnement (pas
+ * d'accès réseau sortant) : getEventEntrantDetails est appelée en best-effort
+ * (voir buildRegieImport), une erreur ici ne bloque jamais l'import régie —
+ * seuls tag/pays restent vides comme avant, exactement comme si cette requête
+ * n'existait pas.
+ */
+const EVENT_ENTRANT_DETAILS_QUERY = /* GraphQL */ `
+  query EventEntrantDetails($eventSlug: String!, $page: Int!, $perPage: Int!) {
+    event(slug: $eventSlug) {
+      entrants(query: { perPage: $perPage, page: $page }) {
+        pageInfo {
+          totalPages
+        }
+        nodes {
+          id
+          participants {
+            prefix
+            player {
+              prefix
+              user {
+                location {
+                  country
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -901,6 +950,49 @@ export async function getEventEntrants(
     return { nodes: data.event.entrants.nodes, totalPages: data.event.entrants.pageInfo.totalPages };
   });
   return nodes.map((entrant) => normalizeEntrant(entrant)).filter((e): e is StartggEntrant => e !== null);
+}
+
+interface RawStartggEntrantDetails {
+  id: string | number;
+  participants?:
+    | {
+        prefix: string | null;
+        player: { prefix: string | null; user: { location: { country: string | null } | null } | null } | null;
+      }[]
+    | null;
+}
+
+/**
+ * `location.country` n'est acceptée que si elle a la forme d'un code ISO
+ * 3166-1 alpha-2 (ex. "FR") : rien ne garantit que start.gg y renvoie
+ * effectivement un code plutôt qu'un nom de pays en toutes lettres (non
+ * vérifié en conditions réelles, voir EVENT_ENTRANT_DETAILS_QUERY) — un
+ * champ dans un format inattendu est ignoré (countryCode reste vide, comme
+ * si l'entrant n'avait rien renseigné) plutôt que stocké tel quel, pour ne
+ * jamais afficher un mauvais drapeau ou casser CountryBadge en aval.
+ */
+function normalizeEntrantDetails(node: RawStartggEntrantDetails): StartggEntrantDetails {
+  const participant = node.participants?.[0] ?? null;
+  const tag = participant?.prefix || participant?.player?.prefix || null;
+  const rawCountry = participant?.player?.user?.location?.country ?? null;
+  const countryCode = rawCountry && /^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : null;
+  return { id: String(node.id), tag, countryCode };
+}
+
+export async function getEventEntrantDetails(
+  eventSlug: string = STARTGG_EVENT_SLUG,
+): Promise<StartggEntrantDetails[]> {
+  const { nodes } = await fetchAllPages<RawStartggEntrantDetails>(async (page) => {
+    const data = await callStartGG<{
+      event: {
+        entrants: { pageInfo: { totalPages: number }; nodes: RawStartggEntrantDetails[] } | null;
+      } | null;
+    }>(EVENT_ENTRANT_DETAILS_QUERY, { eventSlug, page, perPage: PER_PAGE });
+
+    if (!data.event?.entrants) return null;
+    return { nodes: data.event.entrants.nodes, totalPages: data.event.entrants.pageInfo.totalPages };
+  });
+  return nodes.map(normalizeEntrantDetails);
 }
 
 /**

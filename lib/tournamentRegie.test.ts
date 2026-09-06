@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { StartggApiError, type StartggPhase, type StartggSet } from "./startgg";
+import { StartggApiError, type StartggEntrantDetails, type StartggPhase, type StartggSet } from "./startgg";
 import {
   buildRegieMatchesFromPhases,
   buildRegieMatchesFromSets,
@@ -89,6 +89,28 @@ describe("buildRegieMatchesFromSets", () => {
     // ne peut plus distinguer "Winners Round 1" de "Grand Final Reset" et
     // affiche les colonnes dans un ordre arbitraire.
     expect(matches.map((m) => m.orderIndex)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("fills tag/countryCode from the entrant details lookup when available", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", round: 1, fullRoundText: "Round 1", slots: [slot("Alice"), slot("Bob")] })];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["Alice", { id: "Alice", tag: "AOE", countryCode: "FR" }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Alice", tag: "AOE", countryCode: "FR" });
+    // Bob n'a pas d'entrée dans le lookup (ex. requête best-effort qui n'a
+    // pas trouvé son prefix/pays) — tag/pays restent vides plutôt que de planter.
+    expect(matches[0].competitorB).toMatchObject({ name: "Bob", tag: null, countryCode: null });
+  });
+
+  it("leaves tag/countryCode null when no entrant details lookup is given (default)", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", slots: [slot("Alice"), slot("Bob")] })];
+
+    const matches = buildRegieMatchesFromSets(sets);
+
+    expect(matches[0].competitorA).toMatchObject({ tag: null, countryCode: null });
   });
 });
 

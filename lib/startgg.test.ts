@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   detectBracketReset,
+  getEventEntrantDetails,
   getEventPhases,
   getUpcomingSets,
   getUpcomingSetsIncludingPreviews,
@@ -382,5 +383,73 @@ describe("getUpcomingSets vs getUpcomingSetsIncludingPreviews", () => {
     const sets = await getUpcomingSetsIncludingPreviews("tournament/x/event/y");
 
     expect(sets.map((s) => s.id)).toEqual(["preview_123", "456"]);
+  });
+});
+
+/**
+ * Préremplissage tag/pays du mode régie (lib/tournamentRegie.ts) depuis la
+ * fiche start.gg de chaque entrant — voir StartggEntrantDetails.
+ */
+describe("getEventEntrantDetails", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  function mockOnePageOfEntrants(nodes: unknown[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ data: { event: { entrants: { pageInfo: { totalPages: 1 }, nodes } } } }),
+          { status: 200 },
+        ),
+      ),
+    );
+  }
+
+  it("reads the per-event prefix as the tag, and a 2-letter location.country as the country code", async () => {
+    mockOnePageOfEntrants([
+      {
+        id: "1",
+        participants: [{ prefix: "AOE", player: { prefix: "OLD", user: { location: { country: "FR" } } } }],
+      },
+    ]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details).toEqual([{ id: "1", tag: "AOE", countryCode: "FR" }]);
+  });
+
+  it("falls back to the player's default prefix when the per-event one is empty", async () => {
+    mockOnePageOfEntrants([{ id: "1", participants: [{ prefix: null, player: { prefix: "DEFAULT", user: null } }] }]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details[0]).toMatchObject({ tag: "DEFAULT" });
+  });
+
+  it("ignores a country value that isn't a clean 2-letter code (e.g. a full country name)", async () => {
+    mockOnePageOfEntrants([
+      { id: "1", participants: [{ prefix: null, player: { prefix: null, user: { location: { country: "France" } } } }] },
+    ]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details[0]).toMatchObject({ countryCode: null });
+  });
+
+  it("defaults to null tag/countryCode when an entrant has no participant data at all", async () => {
+    mockOnePageOfEntrants([{ id: "1", participants: null }]);
+
+    const details = await getEventEntrantDetails("tournament/x/event/y");
+
+    expect(details).toEqual([{ id: "1", tag: null, countryCode: null }]);
   });
 });

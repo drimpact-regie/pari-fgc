@@ -3,9 +3,11 @@ import type { InvitationalEvent, InvitationalFormat } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   getCompletedSets,
+  getEventEntrantDetails,
   getEventPhases,
   getUpcomingSetsIncludingPreviews,
   StartggApiError,
+  type StartggEntrantDetails,
   type StartggPhase,
   type StartggSet,
 } from "@/lib/startgg";
@@ -57,16 +59,25 @@ function bucketByRound(
     .map(([, roundSets]) => roundSets);
 }
 
-function setToParsedMatch(set: StartggSet, orderIndex: number): ParsedMatch {
+/** id entrant start.gg -> tag/pays, voir getEventEntrantDetails (best-effort, peut être vide). */
+export type EntrantDetailsById = Map<string, StartggEntrantDetails>;
+
+function setToParsedMatch(set: StartggSet, orderIndex: number, entrantDetails: EntrantDetailsById): ParsedMatch {
   const slotA = set.slots[0] ?? null;
   const slotB = set.slots[1] ?? null;
   const label = set.fullRoundText || null;
+  const detailsA = slotA?.entrant ? entrantDetails.get(slotA.entrant.id) : undefined;
+  const detailsB = slotB?.entrant ? entrantDetails.get(slotB.entrant.id) : undefined;
   return {
     groupLabel: label,
     orderIndex,
-    competitorA: slotA?.entrant ? { name: slotA.entrant.name, tag: null, countryCode: null } : null,
+    competitorA: slotA?.entrant
+      ? { name: slotA.entrant.name, tag: detailsA?.tag ?? null, countryCode: detailsA?.countryCode ?? null }
+      : null,
     placeholderA: !slotA?.entrant ? `À déterminer (${label ?? "round suivant"})` : null,
-    competitorB: slotB?.entrant ? { name: slotB.entrant.name, tag: null, countryCode: null } : null,
+    competitorB: slotB?.entrant
+      ? { name: slotB.entrant.name, tag: detailsB?.tag ?? null, countryCode: detailsB?.countryCode ?? null }
+      : null,
     placeholderB: !slotB?.entrant ? `À déterminer (${label ?? "round suivant"})` : null,
     ftGames: set.totalGames,
     roundsPerGame: null,
@@ -92,7 +103,10 @@ function setToParsedMatch(set: StartggSet, orderIndex: number): ParsedMatch {
  * si le mode régie est activé en cours de tournoi plutôt qu'avant son
  * lancement.
  */
-export function buildRegieMatchesFromSets(sets: StartggSet[]): ParsedMatch[] {
+export function buildRegieMatchesFromSets(
+  sets: StartggSet[],
+  entrantDetails: EntrantDetailsById = new Map(),
+): ParsedMatch[] {
   const grandFinalSets = sets.filter((s) => /grand final/i.test(s.fullRoundText));
   const grandFinalResetSets = grandFinalSets.filter((s) => /reset/i.test(s.fullRoundText));
   const grandFinalOnlySets = grandFinalSets.filter((s) => !/reset/i.test(s.fullRoundText));
@@ -115,7 +129,9 @@ export function buildRegieMatchesFromSets(sets: StartggSet[]): ParsedMatch[] {
   // match 0...), rendant cet ordre non déterministe côté SQL (colonnes
   // affichées dans un ordre arbitraire plutôt que Round 1 → Grand Final).
   let globalIndex = 0;
-  return orderedBuckets.flatMap((bucketSets) => bucketSets.map((set) => setToParsedMatch(set, globalIndex++)));
+  return orderedBuckets.flatMap((bucketSets) =>
+    bucketSets.map((set) => setToParsedMatch(set, globalIndex++, entrantDetails)),
+  );
 }
 
 export interface RegiePhaseSets {
@@ -153,7 +169,10 @@ export interface RegiePhaseSets {
  * "Poule D2 — Winners Round 1" (étape "Bracket" à deux poules) à côté de
  * "Top 8 — Winners Round 1" (étape "Top 8", sans poule) pour le même event.
  */
-export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): ParsedMatch[] {
+export function buildRegieMatchesFromPhases(
+  phasesWithSets: RegiePhaseSets[],
+  entrantDetails: EntrantDetailsById = new Map(),
+): ParsedMatch[] {
   const withMatches = phasesWithSets.filter((p) => p.sets.length > 0);
   const multiplePhases = withMatches.length > 1;
 
@@ -175,7 +194,7 @@ export function buildRegieMatchesFromPhases(phasesWithSets: RegiePhaseSets[]): P
 
     for (const { label: poolLabel, sets: poolSets } of poolBuckets) {
       const sectionLabel = poolLabel ? `Poule ${poolLabel}` : multiplePhases ? phase.name : null;
-      for (const match of buildRegieMatchesFromSets(poolSets)) {
+      for (const match of buildRegieMatchesFromSets(poolSets, entrantDetails)) {
         allMatches.push({
           ...match,
           orderIndex: globalIndex++,
@@ -281,6 +300,21 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
     sets: allSets.filter((s) => s.phaseId === phase.id),
   }));
 
+  // Best-effort, à part des deux appels ci-dessus : préremplit tag/pays
+  // depuis la fiche start.gg de chaque entrant (prefix/équipe, pays), voir
+  // getEventEntrantDetails — plutôt que de laisser ces deux champs vides à
+  // ressaisir manuellement par l'admin pour chaque joueur. Une erreur ici
+  // (champ non exposé par cette version de l'API, panne...) ne doit
+  // JAMAIS faire échouer l'activation/la resync : tag/pays restent alors
+  // vides, exactement comme avant l'ajout de cette requête.
+  let entrantDetails: EntrantDetailsById = new Map();
+  try {
+    const details = await getEventEntrantDetails(eventSlug);
+    entrantDetails = new Map(details.map((d) => [d.id, d]));
+  } catch {
+    entrantDetails = new Map();
+  }
+
   // Un tournoi pas encore démarré (aucun match seedé sur aucune étape) est
   // volontairement accepté plutôt que rejeté : le régisseur peut vouloir
   // activer le mode régie à l'avance (chaîne Twitch, réglages d'overlay...)
@@ -289,7 +323,7 @@ async function buildRegieImport(eventSlug: string): Promise<ParsedInvitationalIm
   // aussi createEmptyInvitationalEvent, même principe côté self-service).
   return {
     format: regieOverallFormat(phasesWithSets),
-    matches: buildRegieMatchesFromPhases(phasesWithSets),
+    matches: buildRegieMatchesFromPhases(phasesWithSets, entrantDetails),
   };
 }
 
