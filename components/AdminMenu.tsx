@@ -4,6 +4,7 @@ import { bridgeHref } from "@/lib/domainRouting";
 
 const ADMIN_LINKS = [
   { href: "/admin/tournaments", label: "Tournois" },
+  { href: "/admin/chatbot", label: "Chatbot" },
   { href: "/admin/invitational", label: "Invitational / Prestataire" },
   { href: "/admin/characters", label: "Personnages" },
   { href: "/admin/parry", label: "Le Pari du Parry" },
