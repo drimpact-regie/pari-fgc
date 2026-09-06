@@ -176,7 +176,7 @@ export default function InvitationalOverlayLayoutEditor({
             <span className="text-xs w-20 shrink-0" style={{ color: "var(--muted)" }}>
               {OVERLAY_ELEMENT_LABELS[key]}
             </span>
-            <label className="text-xs">
+            <label className="text-xs" title={key === "stage" ? "Ignoré : l'étape est toujours centrée horizontalement." : undefined}>
               X
               <input
                 type="number"
@@ -184,6 +184,7 @@ export default function InvitationalOverlayLayoutEditor({
                 style={{ width: "4.5rem" }}
                 value={layout[key].x}
                 onChange={(e) => updateField(key, "x", e.target.value)}
+                disabled={key === "stage"}
               />
             </label>
             <label className="text-xs">
@@ -257,10 +258,13 @@ function Preview({ backgroundUrl, layout }: { backgroundUrl: string | null; layo
         <img src={backgroundUrl} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
       )}
       {OVERLAY_ELEMENT_KEYS.map((key) => {
+        const centered = key === "stage";
         const pos = {
           position: "absolute" as const,
-          left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%`,
           top: `${(layout[key].y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+          ...(centered
+            ? { left: "50%", transform: "translateX(-50%)" }
+            : { left: `${(layout[key].x / OVERLAY_CANVAS_WIDTH) * 100}%` }),
         };
         const fontSize = `${layout[key].size}cqw`;
         if (FLAG_KEYS.includes(key)) {

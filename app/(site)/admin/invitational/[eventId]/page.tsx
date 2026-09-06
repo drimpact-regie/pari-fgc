@@ -15,7 +15,7 @@ import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
 import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
 import { INVITATIONAL_TEMPLATE_FILENAMES } from "@/lib/invitationalTemplates";
-import { classifyRoundSide } from "@/lib/invitationalBracket";
+import { classifyRoundSide, splitSection } from "@/lib/invitationalBracket";
 
 export const dynamic = "force-dynamic";
 
@@ -47,13 +47,6 @@ function TabLink({ eventId, tab, active, children }: { eventId: string; tab: Tab
 
 type MatchRow = InvitationalMatch & { competitorA: InvitationalCompetitor | null; competitorB: InvitationalCompetitor | null };
 
-// Même séparateur que celui utilisé pour préfixer groupLabel côté mode régie
-// (voir buildRegieMatchesFromPhases dans lib/tournamentRegie.ts) — jamais
-// plus d'un niveau de préfixe n'est ajouté là-bas, donc ce premier "—"
-// suffit à en extraire la section ("Poule D1"/"Poule D2"/"Top 8"...) du
-// libellé de round proprement dit ("Winners Round 1"...).
-const SECTION_SEPARATOR = " — ";
-
 interface RoundGroupData {
   fullLabel: string;
   roundLabel: string;
@@ -63,12 +56,6 @@ interface RoundGroupData {
 interface SectionData {
   name: string | null;
   roundGroups: RoundGroupData[];
-}
-
-function splitSection(label: string): { section: string | null; roundLabel: string } {
-  const idx = label.indexOf(SECTION_SEPARATOR);
-  if (idx === -1) return { section: null, roundLabel: label };
-  return { section: label.slice(0, idx), roundLabel: label.slice(idx + SECTION_SEPARATOR.length) };
 }
 
 /**

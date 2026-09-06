@@ -11,6 +11,7 @@ import {
   type OverlayElementKey,
   type OverlayLayout,
 } from "@/lib/invitationalOverlayLayout";
+import { abbreviateStageLabel } from "@/lib/invitationalBracket";
 
 interface OverlayCompetitor {
   name: string;
@@ -66,18 +67,29 @@ function Text({
   children,
   color = "#fff",
   weight = 800,
+  centered = false,
 }: {
   layout: OverlayLayout;
   elementKey: OverlayElementKey;
   children: React.ReactNode;
   color?: string;
   weight?: number;
+  /**
+   * Ignore la position X configurée et centre horizontalement le texte
+   * (utilisé pour l'étape/round, dont la longueur varie beaucoup selon le
+   * format — "Poule D2 - WR1" vs "Grand Final Reset" — un ancrage à gauche
+   * ferait dériver visuellement le centre du texte d'un match à l'autre).
+   */
+  centered?: boolean;
 }) {
+  const pos = layout[elementKey];
   return (
     <span
       style={{
-        ...positionStyle(layout[elementKey]),
-        fontSize: `${layout[elementKey].size}cqw`,
+        position: "absolute",
+        top: `${(pos.y / OVERLAY_CANVAS_HEIGHT) * 100}%`,
+        ...(centered ? { left: "50%", transform: "translateX(-50%)" } : { left: `${(pos.x / OVERLAY_CANVAS_WIDTH) * 100}%` }),
+        fontSize: `${pos.size}cqw`,
         fontWeight: weight,
         color,
         textShadow: TEXT_SHADOW,
@@ -155,8 +167,8 @@ export default function OverlayMatchView({ eventId }: { eventId: string }) {
         )}
 
         {match.groupLabel && (
-          <Text layout={layout} elementKey="stage" color="#fbbf24" weight={700}>
-            {match.groupLabel}
+          <Text layout={layout} elementKey="stage" color="#fbbf24" weight={700} centered>
+            {abbreviateStageLabel(match.groupLabel)}
           </Text>
         )}
         {match.ftGames && (
