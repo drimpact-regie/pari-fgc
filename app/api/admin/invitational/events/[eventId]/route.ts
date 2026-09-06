@@ -7,23 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeTwitchChannel } from "@/lib/normalize";
 import { partnerAccessCookieName, resolveInvitationalAccess } from "@/lib/invitationalAccess";
 import { assertValidOverlayBackgroundDataUrl, InvitationalOverlayImageError } from "@/lib/invitationalOverlayImage";
-import { OVERLAY_ELEMENT_KEYS } from "@/lib/invitationalOverlayLayout";
-import { BRACKET_OVERLAY_ELEMENT_KEYS } from "@/lib/invitationalBracketOverlayLayout";
-
-// size optionnel (voir mergePositionedLayout : retombe sur le défaut si
-// absent/invalide) — mais doit être DÉCLARÉ ici pour survivre au parsing,
-// sinon zod le supprime silencieusement comme n'importe quelle clé non
-// reconnue d'un z.object() (repéré en ajoutant le layout du bracket
-// ci-dessous : le champ "Taille" de l'éditeur "match en cours" ne
-// persistait en réalité jamais via cette route, seule la lecture avait été
-// vérifiée).
-const overlayPositionSchema = z.object({ x: z.number(), y: z.number(), size: z.number().positive().optional() });
-const overlayLayoutSchema = z.object(
-  Object.fromEntries(OVERLAY_ELEMENT_KEYS.map((key) => [key, overlayPositionSchema.optional()])),
-);
-const bracketOverlayLayoutSchema = z.object(
-  Object.fromEntries(BRACKET_OVERLAY_ELEMENT_KEYS.map((key) => [key, overlayPositionSchema.optional()])),
-);
+import { overlayLayoutSchema, bracketOverlayLayoutSchema } from "@/lib/invitationalOverlayValidation";
 
 const updateSchema = z.object({
   status: z.enum(["ACTIVE", "PAST"]).optional(),

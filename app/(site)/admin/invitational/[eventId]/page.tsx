@@ -7,6 +7,7 @@ import type { InvitationalCompetitor, InvitationalMatch } from "@prisma/client";
 import InvitationalMatchRow from "@/components/InvitationalMatchRow";
 import InvitationalTwitchChannelEditor from "@/components/InvitationalTwitchChannelEditor";
 import InvitationalOverlaySettings from "@/components/InvitationalOverlaySettings";
+import InvitationalOverlayPresetManager from "@/components/InvitationalOverlayPresetManager";
 import InvitationalOverlayLayoutEditor from "@/components/InvitationalOverlayLayoutEditor";
 import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBracketOverlayLayoutEditor";
 import InvitationalBracketSizeEditor from "@/components/InvitationalBracketSizeEditor";
@@ -186,6 +187,11 @@ export default async function AdminInvitationalEventPage({
     notFound();
   }
 
+  const overlayPresets =
+    tab === "overlay"
+      ? await prisma.invitationalOverlayPreset.findMany({ orderBy: { name: "asc" } })
+      : [];
+
   // orderIndex seul (pas groupLabel) : ordre chronologique réel du tournoi
   // (premier match au dernier), pas un tri alphabétique des libellés de
   // round — même bug de fond que celui corrigé pour le rendu de l'overlay
@@ -294,6 +300,13 @@ export default async function AdminInvitationalEventPage({
         </>
       ) : (
         <>
+          <InvitationalOverlayPresetManager
+            eventId={event.id}
+            currentOverlayLayout={event.overlayLayout}
+            currentBracketOverlayLayout={event.bracketOverlayLayout}
+            initialPresets={overlayPresets}
+          />
+
           <InvitationalOverlaySettings
             eventId={event.id}
             config={{

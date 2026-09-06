@@ -19,6 +19,15 @@ export interface OverlayPosition {
    * taille universelle qui convienne à tous.
    */
   size: number;
+  /**
+   * Couleur du texte de cet élément (ex. "#fbbf24"), au format hexadécimal
+   * #rrggbb — optionnel : seuls les éléments de texte configurables (étape,
+   * tag) l'utilisent réellement au rendu (voir OverlayMatchView.tsx),
+   * les autres l'ignorent silencieusement. Absent = valeur par défaut
+   * (voir DEFAULT_OVERLAY_LAYOUT), pour rester compatible avec les layouts
+   * enregistrés avant l'ajout de ce champ.
+   */
+  color?: string;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -29,6 +38,12 @@ function isValidXY(value: unknown): value is { x: number; y: number } {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return isFiniteNumber(candidate.x) && isFiniteNumber(candidate.y);
+}
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+function isValidHexColor(value: unknown): value is string {
+  return typeof value === "string" && HEX_COLOR_RE.test(value);
 }
 
 /**
@@ -54,7 +69,8 @@ export function mergePositionedLayout<K extends string>(
     const candidate = source[key] as Record<string, unknown> | undefined;
     const xy = isValidXY(candidate) ? { x: candidate!.x as number, y: candidate!.y as number } : defaults[key];
     const size = isFiniteNumber(candidate?.size) && candidate!.size > 0 ? (candidate!.size as number) : defaults[key].size;
-    result[key] = { x: xy.x, y: xy.y, size };
+    const color = isValidHexColor(candidate?.color) ? (candidate!.color as string) : defaults[key].color;
+    result[key] = { x: xy.x, y: xy.y, size, ...(color ? { color } : {}) };
   }
   return result;
 }

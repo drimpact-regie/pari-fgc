@@ -402,6 +402,25 @@ enum InvitationalMatchStatus {
 }
 
 /**
+ * Calage d'overlay nommé et réutilisable : capture d'un coup les positions/
+ * tailles/couleurs des deux overlays "Match en cours" et "Bracket/classement"
+ * d'un event, pour les réappliquer en un clic sur un autre event plutôt que
+ * de tout recaler à chaque tournoi (ex. une chaîne qui réutilise toujours le
+ * même visuel). Global — pas rattaché à un event ni à un prestataire précis
+ * (`name` unique) : un event sans compte (identifié par lien magique email,
+ * voir InvitationalEvent.partnerAccessToken) doit pouvoir en bénéficier tout
+ * autant qu'un event lié à un compte Twitch.
+ */
+model InvitationalOverlayPreset {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  overlayLayout        Json?
+  bracketOverlayLayout Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+/**
  * Un event Invitational/Prestataire. Plusieurs peuvent coexister en
  * parallèle ou se succéder dans le temps, chacun totalement indépendant
  * (ses propres compétiteurs, matchs, cotes). `format` documente le format
