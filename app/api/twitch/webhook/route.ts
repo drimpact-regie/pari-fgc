@@ -40,6 +40,7 @@ import {
   resolveAllPendingBets,
   type WonBetPayout,
 } from "@/lib/matchResults";
+import { getChatbotSettings, type ChatbotFeatureFlags } from "@/lib/chatbotSettings";
 
 interface ChatMessageEvent {
   broadcaster_user_id: string;
@@ -84,6 +85,11 @@ const HELP_LINES = [
 
 const BET_COMMANDS = ["!bet", "!pari"];
 const TOP8_COMMANDS = ["!top8", "!top 8"];
+
+/** Réponse envoyée quand une fonctionnalité a été désactivée depuis /admin/chatbot. */
+function formatDisabledFeatureMessage(displayName: string): string {
+  return `@${displayName} cette fonctionnalité de paris chat est temporairement désactivée.`;
+}
 
 function extractCommandTarget(text: string, commands: string[]): string | null {
   const trimmed = text.trim();
@@ -665,7 +671,12 @@ const RESULTS_CHECK_COOLDOWN_MS = 30_000;
 async function checkAndAnnounceResults(
   tournament: { id: string; eventSlug: string; lastResultsCheckAt: Date | null },
   broadcasterId: string,
+  settings: ChatbotFeatureFlags,
 ) {
+  if (!settings.autoResolveEnabled && !settings.autoAnnounceEnabled && !settings.leaderboardClimbEnabled) {
+    return;
+  }
+
   const now = new Date();
   if (
     tournament.lastResultsCheckAt &&
@@ -684,20 +695,26 @@ async function checkAndAnnounceResults(
   // Instantané du classement LeaderBet de CE tournoi avant résolution, pour
   // détecter une progression juste après (voir announceLeaderboardClimbs) —
   // resolveAllPendingBets() résout les paris de TOUS les tournois en une
-  // seule fois, donc pris à part plutôt qu'à l'intérieur.
-  const ranksBefore = await computeTournamentLeaderboardRanks(tournament.eventSlug);
-  const resolution = await resolveAllPendingBets().catch(() => null);
+  // seule fois, donc pris à part plutôt qu'à l'intérieur. Uniquement si les
+  // deux bascules concernées sont actives : ranksBefore ne sert à rien sinon.
+  const needsClimbTracking = settings.autoResolveEnabled && settings.leaderboardClimbEnabled;
+  const ranksBefore = needsClimbTracking
+    ? await computeTournamentLeaderboardRanks(tournament.eventSlug)
+    : null;
+  const resolution = settings.autoResolveEnabled ? await resolveAllPendingBets().catch(() => null) : null;
 
-  const [completedSets, topSeedEntrantIds] = await Promise.all([
-    getCompletedSets(tournament.eventSlug),
-    getEventTopSeedEntrantIds(tournament.eventSlug).catch(() => new Set<string>()),
-  ]);
-  const results = await detectNewLateBracketResults(tournament, completedSets, topSeedEntrantIds);
-  if (results.length > 0) {
-    await reply(broadcasterId, formatMatchResultMessage(results));
+  if (settings.autoAnnounceEnabled) {
+    const [completedSets, topSeedEntrantIds] = await Promise.all([
+      getCompletedSets(tournament.eventSlug),
+      getEventTopSeedEntrantIds(tournament.eventSlug).catch(() => new Set<string>()),
+    ]);
+    const results = await detectNewLateBracketResults(tournament, completedSets, topSeedEntrantIds);
+    if (results.length > 0) {
+      await reply(broadcasterId, formatMatchResultMessage(results));
+    }
   }
 
-  if (resolution) {
+  if (ranksBefore && resolution) {
     await announceLeaderboardClimbs(tournament, ranksBefore, resolution.wonPayouts, broadcasterId);
   }
 }
@@ -798,6 +815,10 @@ export async function POST(request: Request) {
   const text = event.message.text;
   const broadcasterId = event.broadcaster_user_id;
 
+  // Lu une seule fois par message : bascules admin (/admin/chatbot) pour
+  // chaque fonctionnalité du bot.
+  const settings = await getChatbotSettings();
+
   // Recherché une seule fois par message, qu'il s'agisse ou non d'une
   // commande de pari : sert aussi de déclencheur opportuniste pour la
   // détection de résultats de phases finales tardives ci-dessous.
@@ -805,7 +826,7 @@ export async function POST(request: Request) {
     where: { twitchChannel: event.broadcaster_user_login },
   });
   if (tournament) {
-    await checkAndAnnounceResults(tournament, broadcasterId).catch(() => undefined);
+    await checkAndAnnounceResults(tournament, broadcasterId, settings).catch(() => undefined);
   }
   // Un event Invitational/Prestataire réutilise le même mapping
   // chaîne Twitch <-> "en cours" que les tournois classiques (voir Partie 5
@@ -827,8 +848,10 @@ export async function POST(request: Request) {
   // "!bet" seul, "!bet aide" ou "!bet help" : liste des commandes, sans
   // avoir besoin d'un tournoi en cours.
   if (betTarget !== null && isHelpCommand(betTarget)) {
-    for (const line of HELP_LINES) {
-      await reply(broadcasterId, line);
+    if (settings.helpEnabled) {
+      for (const line of HELP_LINES) {
+        await reply(broadcasterId, line);
+      }
     }
     return NextResponse.json({ ok: true });
   }
@@ -851,7 +874,11 @@ export async function POST(request: Request) {
     // Invitational/Prestataire (pas de bracket start.gg) — seul le pari
     // classique "!bet <joueur>" s'y applique.
     if (invitationalEvent && betTarget !== null && !isParrySubCommand) {
-      await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter, broadcasterId);
+      if (settings.invitationalBetEnabled) {
+        await handleInvitationalBetCommand(betTarget, invitationalEvent, chatter, broadcasterId);
+      } else {
+        await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+      }
     } else if (isParrySubCommand) {
       await reply(broadcasterId, "Pas de paris chat en cours actuellement sur cette chaîne.");
     }
@@ -859,15 +886,35 @@ export async function POST(request: Request) {
   }
 
   if (betTarget !== null && isMvcCommand(betTarget)) {
-    await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);
+    if (settings.mvcBetEnabled) {
+      await handleMvcChatCommand(betTarget, tournament, chatter, broadcasterId);
+    } else {
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+    }
   } else if (betTarget !== null && isResetCommand(betTarget)) {
-    await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
+    if (settings.resetBetEnabled) {
+      await handleResetChatCommand(betTarget, tournament, chatter, broadcasterId);
+    } else {
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+    }
   } else if (betTarget !== null && isTop8Command(betTarget)) {
-    await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
+    if (settings.top8BetEnabled) {
+      await handleTop8Command(parseTop8Target(betTarget) ?? "", tournament, chatter, broadcasterId);
+    } else {
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+    }
   } else if (betTarget !== null) {
-    await handleBetCommand(betTarget, tournament, chatter, broadcasterId);
+    if (settings.classicBetEnabled) {
+      await handleBetCommand(betTarget, tournament, chatter, broadcasterId);
+    } else {
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+    }
   } else if (top8Target !== null) {
-    await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
+    if (settings.top8BetEnabled) {
+      await handleTop8Command(top8Target, tournament, chatter, broadcasterId);
+    } else {
+      await reply(broadcasterId, formatDisabledFeatureMessage(chatter.displayName));
+    }
   }
 
   return NextResponse.json({ ok: true });

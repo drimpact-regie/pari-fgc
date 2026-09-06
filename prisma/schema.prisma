@@ -271,6 +271,26 @@ model TwitchBotToken {
 }
 
 /**
+ * Bascules globales pour chaque fonctionnalité du bot de chat Twitch,
+ * gérées depuis /admin/chatbot (ligne unique, comme TwitchBotToken).
+ * Toutes activées par défaut : ajouter cette table ne doit rien couper tant
+ * qu'un admin n'a pas explicitement désactivé une fonctionnalité.
+ */
+model ChatbotSettings {
+  id                      String   @id @default("singleton")
+  helpEnabled             Boolean  @default(true)
+  classicBetEnabled       Boolean  @default(true)
+  invitationalBetEnabled  Boolean  @default(true)
+  mvcBetEnabled           Boolean  @default(true)
+  resetBetEnabled         Boolean  @default(true)
+  top8BetEnabled          Boolean  @default(true)
+  autoAnnounceEnabled     Boolean  @default(true)
+  autoResolveEnabled      Boolean  @default(true)
+  leaderboardClimbEnabled Boolean  @default(true)
+  updatedAt               DateTime @updatedAt
+}
+
+/**
  * Trace, par chaîne Twitch, le passage réussi du flux self-service public
  * d'autorisation du bot (scope channel:bot — voir /streamer et
  * /api/streamer/authorize). `botLoginAtGrant` capture quel compte Twitch
