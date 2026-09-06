@@ -26,8 +26,8 @@ function makeSet(overrides: Partial<StartggSet> & { id: string }): StartggSet {
   };
 }
 
-function slot(name: string | null) {
-  return { entrant: name ? { id: name, name, playerId: null } : null, seedNum: null, score: null };
+function slot(name: string | null, entrantId?: string) {
+  return { entrant: name ? { id: entrantId ?? name, name, playerId: null } : null, seedNum: null, score: null };
 }
 
 describe("mapBracketTypeToInvitationalFormat", () => {
@@ -111,6 +111,36 @@ describe("buildRegieMatchesFromSets", () => {
     const matches = buildRegieMatchesFromSets(sets);
 
     expect(matches[0].competitorA).toMatchObject({ tag: null, countryCode: null });
+  });
+
+  it("strips a known tag prefix already baked into entrant.name by start.gg, so it isn't shown twice", () => {
+    // start.gg renvoie déjà "<prefix> | <pseudo>" dans entrant.name quand un
+    // prefix est renseigné — une fois ce même prefix affiché séparément
+    // (élément "tag" de l'overlay), le laisser dans le nom l'affichait en
+    // double ("REBOOT" seul, puis "REBOOT | Paulee" juste en dessous).
+    const sets: StartggSet[] = [
+      makeSet({ id: "w1", slots: [slot("REBOOT | Paulee", "e1"), slot("LukYdaK", "e2")] }),
+    ];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["e1", { id: "e1", tag: "REBOOT", countryCode: null }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Paulee", tag: "REBOOT" });
+    // Pas de tag connu pour LukYdaK : le nom reste tel quel, rien à retirer.
+    expect(matches[0].competitorB).toMatchObject({ name: "LukYdaK", tag: null });
+  });
+
+  it("leaves the name untouched if it doesn't actually start with the known tag prefix", () => {
+    const sets: StartggSet[] = [makeSet({ id: "w1", slots: [slot("Paulee", "e1"), slot(null)] })];
+    const entrantDetails = new Map<string, StartggEntrantDetails>([
+      ["e1", { id: "e1", tag: "REBOOT", countryCode: null }],
+    ]);
+
+    const matches = buildRegieMatchesFromSets(sets, entrantDetails);
+
+    expect(matches[0].competitorA).toMatchObject({ name: "Paulee", tag: "REBOOT" });
   });
 });
 

@@ -62,6 +62,27 @@ function bucketByRound(
 /** id entrant start.gg -> tag/pays, voir getEventEntrantDetails (best-effort, peut être vide). */
 export type EntrantDetailsById = Map<string, StartggEntrantDetails>;
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * `entrant.name` côté start.gg inclut déjà le prefix/équipe quand il y en a
+ * un (ex. "REBOOT | Paulee"), sous la forme "<prefix> | <pseudo>" — puisque
+ * ce même prefix est maintenant récupéré séparément comme `tag` (voir
+ * getEventEntrantDetails) et affiché à côté du nom sur l'overlay, le
+ * laisser tel quel affichait le tag EN DOUBLE (une fois via l'élément tag,
+ * une fois collé dans le nom, "|" compris) — repéré sur l'overlay réel
+ * ("REBOOT" au-dessus, "REBOOT | Paulee" en dessous). Ne retire le préfixe
+ * que s'il correspond exactement au tag connu, pour ne jamais tronquer un
+ * pseudo qui contiendrait lui-même un "|" par coïncidence.
+ */
+function stripTagPrefixFromName(name: string, tag: string | null): string {
+  if (!tag) return name;
+  const prefixPattern = new RegExp(`^${escapeRegExp(tag)}\\s*\\|\\s*`);
+  return name.replace(prefixPattern, "");
+}
+
 function setToParsedMatch(set: StartggSet, orderIndex: number, entrantDetails: EntrantDetailsById): ParsedMatch {
   const slotA = set.slots[0] ?? null;
   const slotB = set.slots[1] ?? null;
@@ -72,11 +93,19 @@ function setToParsedMatch(set: StartggSet, orderIndex: number, entrantDetails: E
     groupLabel: label,
     orderIndex,
     competitorA: slotA?.entrant
-      ? { name: slotA.entrant.name, tag: detailsA?.tag ?? null, countryCode: detailsA?.countryCode ?? null }
+      ? {
+          name: stripTagPrefixFromName(slotA.entrant.name, detailsA?.tag ?? null),
+          tag: detailsA?.tag ?? null,
+          countryCode: detailsA?.countryCode ?? null,
+        }
       : null,
     placeholderA: !slotA?.entrant ? `À déterminer (${label ?? "round suivant"})` : null,
     competitorB: slotB?.entrant
-      ? { name: slotB.entrant.name, tag: detailsB?.tag ?? null, countryCode: detailsB?.countryCode ?? null }
+      ? {
+          name: stripTagPrefixFromName(slotB.entrant.name, detailsB?.tag ?? null),
+          tag: detailsB?.tag ?? null,
+          countryCode: detailsB?.countryCode ?? null,
+        }
       : null,
     placeholderB: !slotB?.entrant ? `À déterminer (${label ?? "round suivant"})` : null,
     ftGames: set.totalGames,
