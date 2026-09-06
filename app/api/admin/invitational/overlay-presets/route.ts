@@ -25,8 +25,12 @@ export async function GET() {
 
 const createSchema = z.object({
   name: z.string().trim().min(1, "Nom requis").max(80, "80 caractères maximum"),
-  overlayLayout: overlayLayoutSchema.optional(),
-  bracketOverlayLayout: bracketOverlayLayoutSchema.optional(),
+  // .nullable() en plus de .optional() : un event dont ce layout n'a jamais
+  // été enregistré renvoie `null` côté Prisma (colonne Json nullable) — le
+  // client envoie normalement toujours le layout fusionné (avec défauts),
+  // jamais null, mais on reste tolérant ici plutôt que de rejeter la requête.
+  overlayLayout: overlayLayoutSchema.nullable().optional(),
+  bracketOverlayLayout: bracketOverlayLayoutSchema.nullable().optional(),
 });
 
 export async function POST(request: Request) {
