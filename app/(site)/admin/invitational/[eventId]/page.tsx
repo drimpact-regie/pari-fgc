@@ -13,6 +13,7 @@ import InvitationalBracketOverlayLayoutEditor from "@/components/InvitationalBra
 import InvitationalBracketSizeEditor from "@/components/InvitationalBracketSizeEditor";
 import InvitationalHideBracketPanelToggle from "@/components/InvitationalHideBracketPanelToggle";
 import PartnerInvitationalImportForm from "@/components/PartnerInvitationalImportForm";
+import RegieResyncButton from "@/components/RegieResyncButton";
 import { mergeOverlayLayout } from "@/lib/invitationalOverlayLayout";
 import { mergeBracketOverlayLayout } from "@/lib/invitationalBracketOverlayLayout";
 import { isInvitationalBracketFormat } from "@/lib/invitationalFormats";
@@ -243,8 +244,13 @@ export default async function AdminInvitationalEventPage({
       </div>
 
       {/* Un event "mode régie" (voir Tournament.regieEvent) reçoit ses matchs
-          exclusivement depuis start.gg — aucun fichier à importer. */}
-      {!event.linkedTournamentId && (
+          exclusivement depuis start.gg — aucun fichier à importer. Le bouton
+          de resync est ici en plus (pas seulement sur la page de régie du
+          tournoi, /admin/tournaments/[id]/regie) pour resynchroniser sans
+          avoir à quitter cette page en cours de gestion du tournoi. */}
+      {event.linkedTournamentId ? (
+        <RegieResyncButton tournamentId={event.linkedTournamentId} />
+      ) : (
         <PartnerInvitationalImportForm
           eventId={event.id}
           templateUrl={`/templates/invitational/${INVITATIONAL_TEMPLATE_FILENAMES[event.format]}`}
