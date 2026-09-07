@@ -48,6 +48,9 @@ export default async function Nav() {
                   <Link href="/admin/tournaments" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
                     Tournoi
                   </Link>
+                  <Link href="/admin/chatbot" className="hover:opacity-80" style={{ color: "var(--accent)" }}>
+                    Chatbot
+                  </Link>
                 </>
               )
             ) : (
