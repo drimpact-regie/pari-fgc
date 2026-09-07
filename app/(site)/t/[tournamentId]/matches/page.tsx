@@ -26,6 +26,8 @@ import BetCard from "@/components/BetCard";
 import ActiveChatSetButton from "@/components/ActiveChatSetButton";
 import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatchesSidebar";
 import MatchesPageError from "@/components/MatchesPageError";
+import RefreshStartggButton from "@/components/RefreshStartggButton";
+import SyncResultsButton from "@/components/SyncResultsButton";
 import Top8Bracket from "@/components/Top8Bracket";
 import type { Bet } from "@prisma/client";
 
@@ -242,6 +244,16 @@ export default async function MatchesPage({
       />
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
+      {session.user.isAdmin && (
+        // Sur impactobet.fr directement (pas besoin de passer par
+        // impactobot.fr/admin) : forcer une donnée start.gg à jour pour CE
+        // tournoi, et résoudre les paris en attente sans quitter cette page.
+        <div className="flex flex-wrap items-start gap-3">
+          <RefreshStartggButton tournamentId={tournamentId} />
+          <SyncResultsButton />
+        </div>
+      )}
+
       {error && <MatchesPageError message={error} />}
 
       {!error && phaseSections.length === 0 && (

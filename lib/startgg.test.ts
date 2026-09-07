@@ -406,6 +406,37 @@ describe("callStartGG avec plusieurs tokens (STARTGG_TOKEN_2)", () => {
 });
 
 /**
+ * Tag de cache par tournoi (voir startggCacheTag dans lib/startgg.ts, et
+ * invalidateStartggCache dans lib/startggCache.ts, testée séparément) —
+ * pour un bouton "Rafraîchir depuis start.gg" qui invalide UN tournoi
+ * précis sans attendre STARTGG_CACHE_SECONDS.
+ */
+describe("cache start.gg par tournoi", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  it("tags a fetch that carries an eventSlug with startgg:<slug>", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { event: { phases: [] } } }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getEventPhases("tournament/x/event/y");
+
+    const init = fetchMock.mock.calls[0][1] as { next?: { tags?: string[] } };
+    expect(init.next?.tags).toEqual(["startgg:tournament/x/event/y"]);
+  });
+});
+
+/**
  * Régression pour le "0 match" à l'activation du mode régie sur un bracket
  * pas encore "démarré" côté start.gg : tant que l'organisateur n'a pas
  * cliqué sur "Start", TOUS ses sets — y compris un Round 1 déjà entièrement

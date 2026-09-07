@@ -77,6 +77,22 @@ function getStartggTokens(): string[] {
 // comptes disponibles dès le premier essai, pas seulement en repli.
 let nextTokenStartIndex = 0;
 
+/**
+ * Tag de cache Next.js (voir `next.tags` sur fetch, et invalidateStartggCache
+ * dans lib/startggCache.ts — SÉPARÉ de ce fichier, voir sa doc, pour ne pas
+ * faire dépendre lib/startgg.ts de "next/cache", server-only) pour UN
+ * tournoi start.gg précis — dérivé de `variables.eventSlug` quand présent
+ * (le cas de la grande majorité des requêtes : sets à venir/terminés,
+ * étapes, têtes de série...). Les quelques requêtes sans eventSlug (ex.
+ * getSetResult par id de set, getPhaseGroupsTopSeeds par ids de poule) ne
+ * sont pas taguées — pas de bouton "rafraîchir CE tournoi" à leur associer
+ * de toute façon, elles restent soumises uniquement à STARTGG_CACHE_SECONDS.
+ */
+function startggCacheTag(variables: Record<string, unknown> | undefined): string | undefined {
+  const eventSlug = variables?.eventSlug;
+  return typeof eventSlug === "string" ? `startgg:${eventSlug}` : undefined;
+}
+
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
   query: string,
@@ -102,6 +118,8 @@ async function callStartGG<T>(
     const token = tokens[(startIndex + attempt) % tokens.length];
     const triedEveryTokenThisRound = (attempt + 1) % tokens.length === 0;
 
+    const cacheTag = startggCacheTag(variables);
+
     let res: Response;
     try {
       res = await fetch(STARTGG_API_URL, {
@@ -112,8 +130,10 @@ async function callStartGG<T>(
         },
         body: JSON.stringify({ query, variables }),
         // Cache côté serveur Next.js pour ne pas marteler l'API start.gg à
-        // chaque chargement de page par un des ~30 parieurs.
-        next: { revalidate: STARTGG_CACHE_SECONDS },
+        // chaque chargement de page par un des ~30 parieurs. Tag par
+        // tournoi (quand connu) pour permettre un rafraîchissement ciblé
+        // via invalidateStartggCache, sans attendre la fin de la fenêtre.
+        next: { revalidate: STARTGG_CACHE_SECONDS, ...(cacheTag ? { tags: [cacheTag] } : {}) },
       });
     } catch (err) {
       throw new StartggApiError(
