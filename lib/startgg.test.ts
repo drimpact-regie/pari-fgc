@@ -322,6 +322,90 @@ describe("callStartGG retry/backoff on 429 (exercé via getEventPhases)", () => 
 });
 
 /**
+ * Support de plusieurs tokens start.gg (STARTGG_TOKEN, STARTGG_TOKEN_2...) —
+ * chacun son propre budget de débit chez start.gg, voir le commentaire de
+ * callStartGG. STARTGG_TOKEN_2 est optionnel ; ces tests couvrent le
+ * comportement une fois qu'il est renseigné, en plus du cas mono-token déjà
+ * couvert par le describe ci-dessus (comportement inchangé sans lui).
+ */
+describe("callStartGG avec plusieurs tokens (STARTGG_TOKEN_2)", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+  const originalToken2 = process.env.STARTGG_TOKEN_2;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token-1";
+    process.env.STARTGG_TOKEN_2 = "test-token-2";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    process.env.STARTGG_TOKEN_2 = originalToken2;
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function authHeaderOf(call: unknown[]): string | undefined {
+    const init = call[1] as RequestInit | undefined;
+    return (init?.headers as Record<string, string> | undefined)?.Authorization;
+  }
+
+  it("switches to the other configured token immediately on a 429, without waiting for backoff", async () => {
+    const rateLimited = new Response("rate limited", { status: 429 });
+    const ok = new Response(
+      JSON.stringify({ data: { event: { phases: [] } } }),
+      { status: 200 },
+    );
+    const fetchMock = vi.fn().mockResolvedValueOnce(rateLimited).mockResolvedValueOnce(ok);
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Pas de vi.runAllTimersAsync() ici : la bascule immédiate vers l'autre
+    // token ne doit déclencher aucune vraie attente (contrairement au repli
+    // en backoff, exercé par le describe précédent).
+    const phases = await getEventPhases("tournament/x/event/y");
+
+    expect(phases).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [firstCall, secondCall] = fetchMock.mock.calls;
+    expect(authHeaderOf(firstCall)).not.toBe(authHeaderOf(secondCall));
+    expect([authHeaderOf(firstCall), authHeaderOf(secondCall)].sort()).toEqual([
+      "Bearer test-token-1",
+      "Bearer test-token-2",
+    ]);
+  });
+
+  it("still backs off once every configured token has been tried without success in a round", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () =>
+      new Response("rate limited", { status: 429, statusText: "Too Many Requests" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = getEventPhases("tournament/x/event/y").catch((err) => err);
+    await vi.runAllTimersAsync();
+    const err = await promise;
+
+    expect(err).toBeInstanceOf(StartggApiError);
+    expect((err as StartggApiError).status).toBe(429);
+    // Les deux tokens ont bien été essayés (pas juste le premier en boucle).
+    const usedTokens = new Set(fetchMock.mock.calls.map((call) => authHeaderOf(call)));
+    expect(usedTokens).toEqual(new Set(["Bearer test-token-1", "Bearer test-token-2"]));
+  });
+
+  it("spreads successive independent calls across both tokens, not just the first one", async () => {
+    const ok = () =>
+      Promise.resolve(new Response(JSON.stringify({ data: { event: { phases: [] } } }), { status: 200 }));
+    const fetchMock = vi.fn().mockImplementation(ok);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getEventPhases("tournament/x/event/y");
+    await getEventPhases("tournament/x/event/y");
+
+    const usedTokens = new Set(fetchMock.mock.calls.map((call) => authHeaderOf(call)));
+    expect(usedTokens).toEqual(new Set(["Bearer test-token-1", "Bearer test-token-2"]));
+  });
+});
+
+/**
  * Régression pour le "0 match" à l'activation du mode régie sur un bracket
  * pas encore "démarré" côté start.gg : tant que l'organisateur n'a pas
  * cliqué sur "Start", TOUS ses sets — y compris un Round 1 déjà entièrement

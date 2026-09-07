@@ -57,19 +57,51 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const RATE_LIMIT_MAX_RETRIES = 6;
 const RATE_LIMIT_MAX_BACKOFF_MS = 3000;
 
+/**
+ * Un ou plusieurs comptes start.gg, chacun son propre token (STARTGG_TOKEN,
+ * STARTGG_TOKEN_2, ...) — start.gg limite le débit PAR TOKEN, donc un
+ * deuxième compte donne un budget de requêtes indépendant plutôt que de
+ * partager le même entre tous les jeux d'un tournoi multi-jeux (voir
+ * l'historique de STARTGG_CACHE_SECONDS/RATE_LIMIT_MAX_RETRIES ci-dessus,
+ * déjà relevés pour la même raison sur un tournoi à ~25 jeux). STARTGG_TOKEN_2
+ * est optionnel — sans lui, le comportement reste celui d'un seul token.
+ */
+function getStartggTokens(): string[] {
+  return [process.env.STARTGG_TOKEN, process.env.STARTGG_TOKEN_2].filter(
+    (t): t is string => Boolean(t && t.trim()),
+  );
+}
+
+// Point de départ du round-robin entre tokens, décalé à CHAQUE appel (pas
+// seulement en cas de 429) pour répartir la charge de base entre les
+// comptes disponibles dès le premier essai, pas seulement en repli.
+let nextTokenStartIndex = 0;
+
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const token = process.env.STARTGG_TOKEN;
-  if (!token) {
+  const tokens = getStartggTokens();
+  if (tokens.length === 0) {
     throw new StartggApiError(
       "STARTGG_TOKEN n'est pas défini dans l'environnement du serveur.",
     );
   }
 
+  const startIndex = nextTokenStartIndex % tokens.length;
+  nextTokenStartIndex++;
+
   for (let attempt = 0; ; attempt++) {
+    // Fait tourner tous les tokens disponibles à chaque tentative — un 429
+    // sur un token n'entame pas le budget des autres, donc mieux vaut
+    // réessayer TOUT DE SUITE avec un autre token que d'attendre sur celui
+    // déjà limité. Le vrai backoff (attente) n'intervient qu'une fois tous
+    // les tokens essayés sans succès dans ce tour (avec un seul token
+    // configuré, c'est systématiquement le cas : comportement inchangé).
+    const token = tokens[(startIndex + attempt) % tokens.length];
+    const triedEveryTokenThisRound = (attempt + 1) % tokens.length === 0;
+
     let res: Response;
     try {
       res = await fetch(STARTGG_API_URL, {
@@ -91,6 +123,9 @@ async function callStartGG<T>(
     }
 
     if (res.status === 429 && attempt < RATE_LIMIT_MAX_RETRIES) {
+      if (!triedEveryTokenThisRound) {
+        continue;
+      }
       // start.gg limite le débit par token, pas par requête individuelle :
       // un pic de charge (plusieurs parieurs en même temps) peut déclencher
       // un 429 ponctuel qui se résorbe seul en quelques centaines de ms.
