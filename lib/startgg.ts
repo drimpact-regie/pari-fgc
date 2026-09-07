@@ -923,18 +923,29 @@ export async function getUpcomingSets(
 
 /**
  * Comme getUpcomingSets, mais SANS exclure les sets "prévisionnels" (voir
- * isPreviewSetId) — réservé au mode régie (lib/tournamentRegie.ts), qui a
- * besoin du seeding déjà connu même pour un bracket pas encore "démarré"
- * côté start.gg : tant que l'organisateur n'a pas cliqué sur "Start" sur
+ * isPreviewSetId) : tant que l'organisateur n'a pas cliqué sur "Start" sur
  * start.gg, TOUS les sets d'une étape — y compris le Round 1, déjà
  * entièrement seedé avec de vrais entrants — sont renvoyés avec un id
- * "preview_", ce qui faisait disparaître silencieusement toute la phase de
- * l'import régie. Sans risque ici : le mode régie ne résout jamais un match
- * automatiquement depuis l'id start.gg d'origine (résolution manuelle par
- * l'admin, voir InvitationalMatchRow), contrairement au pari classique — un
- * id "preview_" qui change une fois le bracket réellement lancé sera
- * simplement re-matché par round/position au prochain resync.
- * NE JAMAIS utiliser pour une fonctionnalité de pari.
+ * "preview_", ce qui les faisait disparaître silencieusement partout
+ * (import régie ET page Matchs classique).
+ *
+ * Utilisée par le mode régie (lib/tournamentRegie.ts, résolution manuelle
+ * par l'admin — un id "preview_" qui change une fois le bracket réellement
+ * lancé est simplement re-matché par round/position au prochain resync) ET
+ * par la page Matchs classique (app/(site)/t/[tournamentId]/matches),
+ * DEPUIS que le bracket UFA de Marvel Tokon (fully seedé mais "preview_")
+ * restait invisible aux parieurs alors que l'admin voyait bien un bracket
+ * "définitif" côté start.gg.
+ *
+ * ⚠️ NE JAMAIS accepter un pari sur un set dont isPreviewSetId(set.id) est
+ * vrai — son id n'est pas stable et changera une fois le bracket
+ * réellement lancé, ce qui orphelinerait le pari (voir #112). L'AFFICHER
+ * est sûr (l'utilisateur voit le bracket), le laisser PARIER dessus ne
+ * l'est pas. Cette invariant est déjà défendue indépendamment à CHAQUE
+ * point d'entrée de pari (jamais seulement côté affichage) :
+ * app/api/bets/route.ts et le handler !bet du webhook Twitch vérifient
+ * tous les deux isPreviewSetId(set.id) au moment de la mise, quel que soit
+ * ce que le client a affiché.
  */
 export async function getUpcomingSetsIncludingPreviews(
   eventSlug: string = STARTGG_EVENT_SLUG,

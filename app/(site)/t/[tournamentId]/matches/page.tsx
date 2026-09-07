@@ -8,9 +8,10 @@ import {
   getEventPhases,
   getEventTopSeedEntrantIds,
   getPhaseGroupsTopSeeds,
-  getUpcomingSets,
+  getUpcomingSetsIncludingPreviews,
   isLateBracketRound,
   isNotableMatch,
+  isPreviewSetId,
   isSetOpenForBetting,
   SET_STATE,
   StartggApiError,
@@ -133,8 +134,18 @@ export default async function MatchesPage({
   let error: string | null = null;
   let topSeedEntrantIds = new Set<string>();
   try {
+    // ...IncludingPreviews (pas getUpcomingSets) : tant que l'organisateur
+    // n'a pas cliqué sur "Start" côté start.gg, TOUS les sets de l'étape —
+    // y compris un Round 1 déjà entièrement seedé avec de vrais entrants —
+    // sont renvoyés en "preview_", que getUpcomingSets exclut (à raison
+    // pour le PARI, voir isPreviewSetId) mais qui les faisait aussi
+    // disparaître de l'AFFICHAGE, alors que le bracket est déjà définitif
+    // côté start.gg. Sûr : app/api/bets/route.ts et le webhook Twitch
+    // vérifient tous les deux indépendamment isPreviewSetId au moment du
+    // pari, quel que soit ce qui est affiché ici (voir isSetOpenForBetting
+    // plus bas, et le `locked` passé à BetCard).
     [sets, phases, topSeedEntrantIds] = await Promise.all([
-      getUpcomingSets(tournament.eventSlug),
+      getUpcomingSetsIncludingPreviews(tournament.eventSlug),
       getEventPhases(tournament.eventSlug),
       getEventTopSeedEntrantIds(tournament.eventSlug, 16).catch(() => new Set<string>()),
     ]);
@@ -262,8 +273,12 @@ export default async function MatchesPage({
 
       {visiblePhaseSections.map((phase) => {
         const totalSets = phase.roundGroups.reduce((n, g) => n + g.sets.length, 0);
+        // isSetOpenForBetting (pas juste state === NOT_STARTED) : un set
+        // "preview_" (bracket pas encore lancé côté start.gg, voir
+        // getUpcomingSetsIncludingPreviews plus haut) est bien affiché mais
+        // pas encore pariable — le compter comme "ouvert" ici induirait en erreur.
         const openSets = phase.roundGroups.reduce(
-          (n, g) => n + g.sets.filter((s) => s.state === SET_STATE.NOT_STARTED).length,
+          (n, g) => n + g.sets.filter((s) => isSetOpenForBetting(s)).length,
           0,
         );
 
@@ -281,9 +296,7 @@ export default async function MatchesPage({
 
             <div className="flex flex-col gap-3 p-4 pt-0">
               {phase.roundGroups.map((group) => {
-                const openCount = group.sets.filter(
-                  (set) => set.state === SET_STATE.NOT_STARTED,
-                ).length;
+                const openCount = group.sets.filter((set) => isSetOpenForBetting(set)).length;
                 const seeds = group.phaseGroupId
                   ? seedsByPhaseGroup.get(group.phaseGroupId)
                   : undefined;
@@ -329,7 +342,8 @@ export default async function MatchesPage({
                           <div id={`set-${set.id}`} key={set.id} className="flex flex-col gap-1 scroll-mt-4">
                             {session.user.isAdmin &&
                               tournament.twitchChannel &&
-                              set.state === SET_STATE.NOT_STARTED && (
+                              set.state === SET_STATE.NOT_STARTED &&
+                              !isPreviewSetId(set.id) && (
                                 <div className="self-end">
                                   <ActiveChatSetButton
                                     tournamentId={tournamentId}
@@ -342,7 +356,7 @@ export default async function MatchesPage({
                               tournamentId={tournamentId}
                               setId={set.id}
                               entrants={entrants}
-                              locked={set.state !== SET_STATE.NOT_STARTED}
+                              locked={set.state !== SET_STATE.NOT_STARTED || isPreviewSetId(set.id)}
                               exBalance={exBalance}
                               existingBet={bet}
                             />
