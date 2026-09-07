@@ -25,6 +25,7 @@ import { FALLBACK_ODDS } from "@/config/tournament";
 import BetCard from "@/components/BetCard";
 import ActiveChatSetButton from "@/components/ActiveChatSetButton";
 import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatchesSidebar";
+import MatchesPageError from "@/components/MatchesPageError";
 import Top8Bracket from "@/components/Top8Bracket";
 import type { Bet } from "@prisma/client";
 
@@ -241,11 +242,7 @@ export default async function MatchesPage({
       />
 
       <div className="flex-1 min-w-0 flex flex-col gap-4">
-      {error && (
-        <div className="card p-4" style={{ color: "var(--lose)" }}>
-          Impossible de récupérer les matchs depuis start.gg : {error}
-        </div>
-      )}
+      {error && <MatchesPageError message={error} />}
 
       {!error && phaseSections.length === 0 && (
         <p style={{ color: "var(--muted)" }}>Aucune étape disponible pour le moment.</p>

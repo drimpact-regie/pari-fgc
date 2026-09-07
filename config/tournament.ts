@@ -77,7 +77,19 @@ export const PARRY_POINTS = {
  * (matchs à venir, stats joueurs) sont mises en cache côté serveur avant
  * d'être rafraîchies. Évite de saturer le rate-limit de l'API pour un
  * cercle de parieurs qui rafraîchit la page régulièrement.
+ *
+ * Relevé de 30 à 60 après des 429 persistants sur la page Matchs de TOUS
+ * les jeux d'un tournoi à ~25 jeux (Ultimate Fighting Arena 2026) — chaque
+ * jeu a son propre eventSlug (donc sa propre clé de cache, aucun partage
+ * entre jeux), et une seule page Matchs déclenche déjà 3-7 requêtes
+ * start.gg en parallèle (matchs à venir paginés, étapes, têtes de série).
+ * Avec ~25 jeux consultés par plusieurs parieurs à la fois, le token
+ * partagé peut vite dépasser le débit autorisé par start.gg même sans
+ * personne qui abuse d'un F5 répété — un cache plus long réduit la
+ * fréquence de rafraîchissement RÉEL sans rendre les scores/paris
+ * dangereusement périmés (30-60s reste largement sous le temps de jeu
+ * d'un set en FGC).
  */
 export const STARTGG_CACHE_SECONDS = Number(
-  process.env.STARTGG_CACHE_SECONDS ?? 30,
+  process.env.STARTGG_CACHE_SECONDS ?? 60,
 );

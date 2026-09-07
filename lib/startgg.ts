@@ -41,12 +41,21 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * pagination des sets à venir/terminés) dans un intervalle court — un budget
  * de 2 tentatives (soit ~1,2s de backoff cumulé dans le pire cas) s'épuisait
  * trop vite si plusieurs de ces requêtes tombaient sur la même fenêtre de
- * limite. Le plafond de 2s évite qu'un appel interactif (ex. placer un pari)
- * qui passe par ce même point central n'attende, lui, une dizaine de
- * secondes avant d'échouer.
+ * limite.
+ *
+ * Relevé une seconde fois (4 -> 6, plafond 2s -> 3s) après des 429
+ * persistants sur la page Matchs classique (app/(site)/t/[tournamentId]/matches),
+ * cette fois sur un tournoi à ~25 jeux (Ultimate Fighting Arena 2026) — CE
+ * n'est PAS le mode régie ici : chaque page Matchs déclenche déjà 3-7
+ * requêtes start.gg (sets à venir paginés, étapes, têtes de série) sur le
+ * MÊME token partagé, et avec ~25 jeux consultés en parallèle par plusieurs
+ * parieurs, le budget précédent s'épuisait avant que la fenêtre de débit
+ * start.gg ne se libère. Le plafond de 3s reste borné pour qu'un appel
+ * interactif (placer un pari) qui passe par ce même point central n'attende
+ * jamais plus de quelques secondes avant d'échouer.
  */
-const RATE_LIMIT_MAX_RETRIES = 4;
-const RATE_LIMIT_MAX_BACKOFF_MS = 2000;
+const RATE_LIMIT_MAX_RETRIES = 6;
+const RATE_LIMIT_MAX_BACKOFF_MS = 3000;
 
 /** Équivalent de Fn_AppelAPI: POST GraphQL authentifié par Bearer token. */
 async function callStartGG<T>(
