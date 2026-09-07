@@ -29,6 +29,7 @@ import OpenMatchesSidebar, { type OpenMatchEntry } from "@/components/OpenMatche
 import MatchesPageError from "@/components/MatchesPageError";
 import RefreshStartggButton from "@/components/RefreshStartggButton";
 import SyncResultsButton from "@/components/SyncResultsButton";
+import MatchesSearchBar from "@/components/MatchesSearchBar";
 import Top8Bracket from "@/components/Top8Bracket";
 import type { Bet } from "@prisma/client";
 
@@ -81,6 +82,20 @@ function buildPhaseSections(phases: StartggPhase[], sets: StartggSet[]): PhaseSe
   }
 
   return Array.from(sections.values());
+}
+
+/**
+ * Chaîne de recherche (noms/tags des deux entrants, en minuscules) associée
+ * à un set — posée en attribut `data-entrant-names` sur son bloc et sur ses
+ * conteneurs (round, étape), voir MatchesSearchBar : filtre 100% côté
+ * client sur ce qui est déjà rendu, sans requête supplémentaire.
+ */
+function searchableNames(set: StartggSet): string {
+  return set.slots
+    .map((slot) => slot.entrant?.name ?? "")
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 /** Entrants connus d'un set avec leur cote décimale calculée depuis les seeds (lib/odds.ts). */
@@ -271,6 +286,8 @@ export default async function MatchesPage({
         <p style={{ color: "var(--muted)" }}>Aucune étape disponible pour le moment.</p>
       )}
 
+      {phaseSections.length > 0 && <MatchesSearchBar />}
+
       {visiblePhaseSections.map((phase) => {
         const totalSets = phase.roundGroups.reduce((n, g) => n + g.sets.length, 0);
         // isSetOpenForBetting (pas juste state === NOT_STARTED) : un set
@@ -282,8 +299,12 @@ export default async function MatchesPage({
           0,
         );
 
+        const phaseSearchableNames = phase.roundGroups
+          .flatMap((g) => g.sets.map(searchableNames))
+          .join(" ");
+
         return (
-          <details key={phase.phaseId} className="card">
+          <details key={phase.phaseId} className="card" data-entrant-names={phaseSearchableNames}>
             <summary
               className="flex items-center justify-between gap-3 px-4 py-3 cursor-pointer select-none list-none"
               style={{ borderLeft: "3px solid var(--accent)" }}
@@ -301,12 +322,15 @@ export default async function MatchesPage({
                   ? seedsByPhaseGroup.get(group.phaseGroupId)
                   : undefined;
 
+                const groupSearchableNames = group.sets.map(searchableNames).join(" ");
+
                 return (
                   <details
                     key={group.label + group.phaseGroupId}
                     className="card"
                     style={{ background: "var(--surface-alt)" }}
                     open={false}
+                    data-entrant-names={groupSearchableNames}
                   >
                     <summary
                       className="flex flex-col gap-1 px-4 py-3 cursor-pointer select-none list-none"
@@ -339,7 +363,12 @@ export default async function MatchesPage({
                         const bet = buildExistingBet(betBySetId.get(set.id));
 
                         return (
-                          <div id={`set-${set.id}`} key={set.id} className="flex flex-col gap-1 scroll-mt-4">
+                          <div
+                            id={`set-${set.id}`}
+                            key={set.id}
+                            className="flex flex-col gap-1 scroll-mt-4"
+                            data-entrant-names={searchableNames(set)}
+                          >
                             {session.user.isAdmin &&
                               tournament.twitchChannel &&
                               set.state === SET_STATE.NOT_STARTED &&
