@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useSession, signIn } from "next-auth/react";
+import { signIn } from "next-auth/react";
 
 import { INVITATIONAL_FORMATS, INVITATIONAL_FORMAT_LABELS } from "@/lib/invitationalFormats";
 
 type IdentMethod = "TWITCH" | "MANUAL";
 
-export default function InvitationalRequestForm() {
-  const { data: session, status } = useSession();
+export default function InvitationalRequestForm({ userName }: { userName: string | null }) {
 
   const [identMethod, setIdentMethod] = useState<IdentMethod>("TWITCH");
   const [eventName, setEventName] = useState("");
@@ -143,9 +142,9 @@ export default function InvitationalRequestForm() {
         </div>
 
         {identMethod === "TWITCH" ? (
-          status === "authenticated" && session?.user ? (
+          userName !== null ? (
             <p className="text-sm" style={{ color: "var(--muted)" }}>
-              Connecté en tant que <strong>{session.user.name}</strong>. Cette demande sera associée
+              Connecté en tant que <strong>{userName}</strong>. Cette demande sera associée
               à ce compte.
             </p>
           ) : (
@@ -195,7 +194,7 @@ export default function InvitationalRequestForm() {
       <button
         type="submit"
         className="btn btn-primary"
-        disabled={saving || (identMethod === "TWITCH" && status !== "authenticated")}
+        disabled={saving || (identMethod === "TWITCH" && userName === null)}
       >
         {saving ? "Envoi..." : "Envoyer la demande"}
       </button>

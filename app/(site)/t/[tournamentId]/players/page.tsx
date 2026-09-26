@@ -4,7 +4,7 @@ import { getTournament } from "@/lib/tournaments";
 import {
   computeRecords,
   getCompletedSets,
-  getPlayerRecentStandings,
+  getPlayersRecentStandings,
   getStandings,
   StartggApiError,
   type PlayerHistoryEntry,
@@ -43,21 +43,12 @@ export default async function PlayersPage({
     .filter((s) => s.entrant !== null)
     .filter((s) => s.placement === null || s.placement <= TOP_CUTOFF);
 
-  const palmaresById = new Map<string, PlayerHistoryEntry[]>();
-  if (!error) {
-    await Promise.all(
-      topStandings.map(async (standing) => {
-        const playerId = standing.entrant!.playerId;
-        if (!playerId) return;
-        try {
-          const history = await getPlayerRecentStandings(playerId, 5);
-          palmaresById.set(standing.entrant!.id, history);
-        } catch {
-          // Palmarès indisponible pour ce joueur : on l'affiche simplement vide.
-        }
-      }),
-    );
-  }
+  const palmaresByPlayerId = error
+    ? new Map<string, PlayerHistoryEntry[]>()
+    : await getPlayersRecentStandings(
+        topStandings.flatMap((s) => (s.entrant!.playerId ? [s.entrant!.playerId] : [])),
+        5,
+      );
 
   return (
     <div className="flex flex-col gap-4">
@@ -86,7 +77,7 @@ export default async function PlayersPage({
               {topStandings.map((standing) => {
                 const entrant = standing.entrant!;
                 const record = records.get(entrant.id);
-                const history = palmaresById.get(entrant.id) ?? [];
+                const history = (entrant.playerId && palmaresByPlayerId.get(entrant.playerId)) || [];
                 return (
                   <tr key={entrant.id} className="border-t align-top" style={{ borderColor: "var(--border)" }}>
                     <td className="px-4 py-2">{standing.placement ?? "—"}</td>

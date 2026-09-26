@@ -4,6 +4,7 @@ import {
   detectBracketReset,
   getEventEntrantDetails,
   getEventPhases,
+  getPlayersRecentStandings,
   getUpcomingSets,
   getUpcomingSetsIncludingPreviews,
   isLateBracketRound,
@@ -566,5 +567,66 @@ describe("getEventEntrantDetails", () => {
     const details = await getEventEntrantDetails("tournament/x/event/y");
 
     expect(details).toEqual([{ id: "1", tag: null, countryCode: null }]);
+  });
+});
+
+describe("getPlayersRecentStandings", () => {
+  const originalToken = process.env.STARTGG_TOKEN;
+
+  beforeEach(() => {
+    process.env.STARTGG_TOKEN = "test-token";
+  });
+
+  afterEach(() => {
+    process.env.STARTGG_TOKEN = originalToken;
+    vi.unstubAllGlobals();
+  });
+
+  function standingsFor(eventName: string) {
+    return {
+      recentStandings: [
+        {
+          placement: 3,
+          entrant: {
+            event: {
+              name: eventName,
+              tournament: { name: "Evo", images: [{ url: "logo.png", type: "profile" }] },
+            },
+          },
+        },
+        { placement: 9, entrant: null },
+      ],
+    };
+  }
+
+  it("fetches many players in a few batched requests instead of one per player", async () => {
+    const playerIds = Array.from({ length: 20 }, (_, i) => `p${i}`);
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const { variables } = JSON.parse(init.body as string) as {
+        variables: Record<string, unknown>;
+      };
+      const data: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(variables)) {
+        if (key.startsWith("id")) data[`p${key.slice(2)}`] = standingsFor(`Event of ${value}`);
+      }
+      return new Response(JSON.stringify({ data }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPlayersRecentStandings(playerIds, 5);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.size).toBe(20);
+    expect(result.get("p17")).toEqual([
+      { placement: 3, eventName: "Event of p17", tournamentName: "Evo", tournamentLogoUrl: "logo.png" },
+    ]);
+  });
+
+  it("makes no request when there is no player", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect((await getPlayersRecentStandings([], 5)).size).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

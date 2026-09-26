@@ -12,7 +12,12 @@ interface StoredPick {
 
 export default async function GlobalLeaderboardPage() {
   const [users, topEightPicks, mvcBets, bracketResetBets] = await Promise.all([
-    prisma.user.findMany({ include: { bets: true } }),
+    prisma.user.findMany({
+      select: {
+        username: true,
+        bets: { select: { status: true, pointsAwarded: true, eventSlug: true } },
+      },
+    }),
     prisma.topEightPick.findMany({ include: { user: { select: { username: true } } } }),
     prisma.mvcBet.findMany({ include: { user: { select: { username: true } } } }),
     prisma.bracketResetBet.findMany({ include: { user: { select: { username: true } } } }),

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import HoverPrefetchLink from "@/components/HoverPrefetchLink";
 
 import type { TournamentCardInfo } from "@/lib/tournaments";
 
@@ -10,7 +10,7 @@ export default function TournamentBannerCard({
   href: string;
 }) {
   return (
-    <Link
+    <HoverPrefetchLink
       href={href}
       className="card relative flex items-end overflow-hidden hover:opacity-90"
       style={{
@@ -27,11 +27,13 @@ export default function TournamentBannerCard({
         <img
           src={tournament.videogameImageUrl}
           alt=""
+          loading="lazy"
+          decoding="async"
           className="absolute top-3 right-3 rounded-md object-cover"
           style={{ width: "3rem", height: "3rem", boxShadow: "0 0 0 2px rgba(255,255,255,0.2)" }}
         />
       )}
       <span className="font-semibold text-lg p-4 drop-shadow">{tournament.name}</span>
-    </Link>
+    </HoverPrefetchLink>
   );
 }

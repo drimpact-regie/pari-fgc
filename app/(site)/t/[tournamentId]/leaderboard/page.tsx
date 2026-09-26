@@ -16,7 +16,13 @@ export default async function LeaderboardPage({
   if (!tournament) notFound();
 
   const users = await prisma.user.findMany({
-    include: { bets: { where: { eventSlug: tournament.eventSlug } } },
+    select: {
+      username: true,
+      bets: {
+        where: { eventSlug: tournament.eventSlug },
+        select: { status: true, pointsAwarded: true },
+      },
+    },
   });
 
   const rows = users

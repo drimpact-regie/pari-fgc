@@ -138,34 +138,43 @@ export default async function MatchesPage({
   params: Promise<{ tournamentId: string }>;
 }) {
   const { tournamentId } = await params;
-  const session = await auth();
+  const [session, tournament] = await Promise.all([auth(), getTournament(tournamentId)]);
   if (!session?.user) return null;
-
-  const tournament = await getTournament(tournamentId);
   if (!tournament) notFound();
 
   let sets: StartggSet[] = [];
   let phases: StartggPhase[] = [];
   let error: string | null = null;
   let topSeedEntrantIds = new Set<string>();
-  try {
-    // ...IncludingPreviews (pas getUpcomingSets) : tant que l'organisateur
-    // n'a pas cliqué sur "Start" côté start.gg, TOUS les sets de l'étape —
-    // y compris un Round 1 déjà entièrement seedé avec de vrais entrants —
-    // sont renvoyés en "preview_", que getUpcomingSets exclut (à raison
-    // pour le PARI, voir isPreviewSetId) mais qui les faisait aussi
-    // disparaître de l'AFFICHAGE, alors que le bracket est déjà définitif
-    // côté start.gg. Sûr : app/api/bets/route.ts et le webhook Twitch
-    // vérifient tous les deux indépendamment isPreviewSetId au moment du
-    // pari, quel que soit ce qui est affiché ici (voir isSetOpenForBetting
-    // plus bas, et le `locked` passé à BetCard).
-    [sets, phases, topSeedEntrantIds] = await Promise.all([
+  // ...IncludingPreviews (pas getUpcomingSets) : tant que l'organisateur
+  // n'a pas cliqué sur "Start" côté start.gg, TOUS les sets de l'étape —
+  // y compris un Round 1 déjà entièrement seedé avec de vrais entrants —
+  // sont renvoyés en "preview_", que getUpcomingSets exclut (à raison
+  // pour le PARI, voir isPreviewSetId) mais qui les faisait aussi
+  // disparaître de l'AFFICHAGE, alors que le bracket est déjà définitif
+  // côté start.gg. Sûr : app/api/bets/route.ts et le webhook Twitch
+  // vérifient tous les deux indépendamment isPreviewSetId au moment du
+  // pari, quel que soit ce qui est affiché ici (voir isSetOpenForBetting
+  // plus bas, et le `locked` passé à BetCard).
+  const [startggResult, [userBets, currentUser]] = await Promise.all([
+    Promise.all([
       getUpcomingSetsIncludingPreviews(tournament.eventSlug),
       getEventPhases(tournament.eventSlug),
       getEventTopSeedEntrantIds(tournament.eventSlug, 16).catch(() => new Set<string>()),
-    ]);
-  } catch (err) {
-    error = err instanceof StartggApiError ? err.message : "Erreur inconnue.";
+    ]).then(
+      (value) => ({ ok: true as const, value }),
+      (err: unknown) => ({ ok: false as const, err }),
+    ),
+    Promise.all([
+      prisma.bet.findMany({ where: { userId: session.user.id, eventSlug: tournament.eventSlug } }),
+      prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } }),
+    ]),
+  ]);
+  if (startggResult.ok) {
+    [sets, phases, topSeedEntrantIds] = startggResult.value;
+  } else {
+    error =
+      startggResult.err instanceof StartggApiError ? startggResult.err.message : "Erreur inconnue.";
   }
 
   // Pour le bracket Top 8 (voir plus bas) : certains tournois scindent la
@@ -187,22 +196,6 @@ export default async function MatchesPage({
   const bracketPhaseIds = new Set(
     phases.filter((p) => isLateBracketRound(p.name, 24)).map((p) => p.id),
   );
-  let completedTop8Sets: StartggSet[] = [];
-  if (bracketPhaseIds.size > 0) {
-    try {
-      const completedSets = await getCompletedSets(tournament.eventSlug);
-      completedTop8Sets = completedSets.filter(
-        (s) => s.phaseId != null && bracketPhaseIds.has(s.phaseId),
-      );
-    } catch {
-      // best-effort : le bracket se contente alors des matchs encore ouverts/en cours.
-    }
-  }
-
-  const [userBets, currentUser] = await Promise.all([
-    prisma.bet.findMany({ where: { userId: session.user.id, eventSlug: tournament.eventSlug } }),
-    prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } }),
-  ]);
   const betBySetId = new Map(userBets.map((bet) => [bet.setId, bet]));
   const exBalance = currentUser?.exBalance ?? 0;
 
@@ -234,9 +227,17 @@ export default async function MatchesPage({
   // parieurs chargeaient la page en même temps (ex. juste avant de placer un
   // pari, qui revérifie aussi l'état du match auprès de start.gg).
   const phaseGroupIds = [...new Set(poolGroups.map((g) => g.phaseGroupId!))];
-  const seedsByPhaseGroup = await getPhaseGroupsTopSeeds(phaseGroupIds, 4).catch(
-    () => new Map<string, StartggSeed[]>(),
-  );
+  const [completedTop8Sets, seedsByPhaseGroup] = await Promise.all([
+    bracketPhaseIds.size > 0
+      ? getCompletedSets(tournament.eventSlug)
+          .then((completed) =>
+            completed.filter((s) => s.phaseId != null && bracketPhaseIds.has(s.phaseId)),
+          )
+          // best-effort : le bracket se contente alors des matchs encore ouverts/en cours.
+          .catch((): StartggSet[] => [])
+      : Promise.resolve<StartggSet[]>([]),
+    getPhaseGroupsTopSeeds(phaseGroupIds, 4).catch(() => new Map<string, StartggSeed[]>()),
+  ]);
 
   // Une étape sans set généré côté start.gg n'a encore rien d'accessible (ni
   // pari possible, ni résultat) — l'afficher quand même comme "Pas encore

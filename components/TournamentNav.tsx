@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import HoverPrefetchLink from "@/components/HoverPrefetchLink";
+
 interface TournamentSummary {
   id: string;
   name: string;
@@ -45,7 +47,7 @@ export default function TournamentNav({
     <div className="flex flex-col gap-3">
       <div className="flex gap-2 overflow-x-auto pb-1">
         {tournaments.map((t) => (
-          <Link
+          <HoverPrefetchLink
             key={t.id}
             href={`/t/${t.id}/${tournamentSection}`}
             className="px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors"
@@ -56,7 +58,7 @@ export default function TournamentNav({
             }
           >
             {t.name}
-          </Link>
+          </HoverPrefetchLink>
         ))}
         <Link
           href="/invitational"

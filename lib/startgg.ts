@@ -546,28 +546,6 @@ const STANDINGS_QUERY = /* GraphQL */ `
 `;
 
 /** Historique récent d'un joueur (tous tournois start.gg confondus) — sert au palmarès. */
-const PLAYER_RECENT_STANDINGS_QUERY = /* GraphQL */ `
-  query PlayerRecentStandings($playerId: ID!, $limit: Int!) {
-    player(id: $playerId) {
-      recentStandings(limit: $limit) {
-        placement
-        entrant {
-          event {
-            name
-            tournament {
-              name
-              images {
-                url
-                type
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
 const SET_RESULT_QUERY = /* GraphQL */ `
   query SetResult($setId: ID!) {
     set(id: $setId) {
@@ -1070,45 +1048,105 @@ export async function getEventEntrantDetails(
   return nodes.map(normalizeEntrantDetails);
 }
 
-/**
- * Palmarès d'un joueur: ses N derniers résultats de tournoi côté start.gg
- * (tous tournois confondus, pas seulement ceux suivis par l'app). Nécessite
- * le playerId stable (participants.player.id), pas l'entrantId (qui change
- * à chaque tournoi).
- */
-export async function getPlayerRecentStandings(
-  playerId: string,
-  limit = 5,
-): Promise<PlayerHistoryEntry[]> {
-  interface RawTournament {
-    name: string;
-    images: { url: string; type: string | null }[] | null;
-  }
-  const data = await callStartGG<{
-    player: {
-      recentStandings: {
-        placement: number | null;
-        entrant: {
-          event: { name: string; tournament: RawTournament | null } | null;
-        } | null;
-      }[] | null;
+interface RawPlayerRecentStandings {
+  recentStandings: {
+    placement: number | null;
+    entrant: {
+      event: {
+        name: string;
+        tournament: { name: string; images: { url: string; type: string | null }[] | null } | null;
+      } | null;
     } | null;
-  }>(PLAYER_RECENT_STANDINGS_QUERY, { playerId, limit });
+  }[] | null;
+}
 
-  return (data.player?.recentStandings ?? [])
-    .filter((s): s is typeof s & { entrant: { event: { name: string; tournament: RawTournament | null } } } =>
-      s.entrant?.event != null,
-    )
-    .map((s) => {
-      const images = s.entrant.event.tournament?.images ?? [];
-      const logo = images.find((img) => img.type === "profile") ?? images[0] ?? null;
-      return {
+function normalizePlayerHistory(player: RawPlayerRecentStandings | null): PlayerHistoryEntry[] {
+  return (player?.recentStandings ?? []).flatMap((s) => {
+    const event = s.entrant?.event;
+    if (!event) return [];
+    const images = event.tournament?.images ?? [];
+    const logo = images.find((img) => img.type === "profile") ?? images[0] ?? null;
+    return [
+      {
         placement: s.placement,
-        eventName: s.entrant.event.name,
-        tournamentName: s.entrant.event.tournament?.name ?? "",
+        eventName: event.name,
+        tournamentName: event.tournament?.name ?? "",
         tournamentLogoUrl: logo?.url ?? null,
-      };
-    });
+      },
+    ];
+  });
+}
+
+// Reste sous la limite de complexité start.gg (~1000 objets par requête).
+const PLAYER_HISTORY_BATCH_SIZE = 15;
+
+/**
+ * Palmarès des joueurs : leurs N derniers résultats de tournoi côté start.gg
+ * (tous tournois confondus). Nécessite le playerId stable
+ * (participants.player.id), pas l'entrantId (qui change à chaque tournoi).
+ *
+ * Groupé par lots de
+ * PLAYER_HISTORY_BATCH_SIZE joueurs par requête GraphQL (alias) plutôt
+ * qu'une requête par joueur : avant le début d'un tournoi (aucun placement
+ * final), la page Joueurs affiche TOUS les inscrits et déclenchait sinon
+ * des centaines de requêtes start.gg d'un coup, et donc des 429 en série.
+ * Un lot en échec laisse simplement ses joueurs sans palmarès.
+ */
+export async function getPlayersRecentStandings(
+  playerIds: string[],
+  limit = 5,
+): Promise<Map<string, PlayerHistoryEntry[]>> {
+  const uniqueIds = [...new Set(playerIds)];
+  const batches: string[][] = [];
+  for (let i = 0; i < uniqueIds.length; i += PLAYER_HISTORY_BATCH_SIZE) {
+    batches.push(uniqueIds.slice(i, i + PLAYER_HISTORY_BATCH_SIZE));
+  }
+
+  const result = new Map<string, PlayerHistoryEntry[]>();
+  await Promise.all(
+    batches.map(async (batch) => {
+      const query = `
+        query BatchPlayerRecentStandings(${batch.map((_, i) => `$id${i}: ID!`).join(", ")}, $limit: Int!) {
+          ${batch
+            .map(
+              (_, i) => `
+          p${i}: player(id: $id${i}) {
+            recentStandings(limit: $limit) {
+              placement
+              entrant {
+                event {
+                  name
+                  tournament {
+                    name
+                    images {
+                      url
+                      type
+                    }
+                  }
+                }
+              }
+            }
+          }`,
+            )
+            .join("\n")}
+        }
+      `;
+      const variables: Record<string, unknown> = { limit };
+      batch.forEach((id, i) => {
+        variables[`id${i}`] = id;
+      });
+      try {
+        const data = await callStartGG<Record<string, RawPlayerRecentStandings | null>>(
+          query,
+          variables,
+        );
+        batch.forEach((id, i) => result.set(id, normalizePlayerHistory(data[`p${i}`] ?? null)));
+      } catch {
+        // Palmarès indisponible pour ce lot : ses joueurs s'affichent sans historique.
+      }
+    }),
+  );
+  return result;
 }
 
 export async function getSetResult(setId: string): Promise<StartggSet | null> {

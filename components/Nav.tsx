@@ -8,21 +8,22 @@ import LogoutButton from "@/components/LogoutButton";
 import AdminMenu from "@/components/AdminMenu";
 
 export default async function Nav() {
-  const session = await auth();
-  const host = (await headers()).get("host") ?? "";
+  const [session, headerList] = await Promise.all([auth(), headers()]);
+  const host = headerList.get("host") ?? "";
   // Même app, mais l'identité affichée change selon le domaine : "Bet" pour
   // le parieur (impactobet.fr), "Bot" pour le streamer/régie (impactobot.fr).
   const isStreamerDomain = domainOfHost(host) === "streamer";
   const brandName = isStreamerDomain ? "Impact'O Bot" : "Impact'O Bet";
-  const currentUser = session?.user
-    ? await prisma.user.findUnique({ where: { id: session.user.id }, select: { exBalance: true } })
-    : null;
-  // N'affiche "Mes events" que pour les comptes qui en possèdent au moins un
-  // (portail self-service prestataire) — évite d'encombrer la nav des ~30
+  const userId = session?.user?.id;
+  // "Mes events" n'est affiché que pour les comptes qui en possèdent au moins
+  // un (portail self-service prestataire) — évite d'encombrer la nav des ~30
   // parieurs classiques qui n'ont jamais fait de demande.
-  const ownedInvitationalCount = session?.user?.id
-    ? await prisma.invitationalEvent.count({ where: { ownerUserId: session.user.id } })
-    : 0;
+  const [currentUser, ownedInvitationalCount] = userId
+    ? await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { exBalance: true } }),
+        prisma.invitationalEvent.count({ where: { ownerUserId: userId } }),
+      ])
+    : [null, 0];
 
   return (
     <header
