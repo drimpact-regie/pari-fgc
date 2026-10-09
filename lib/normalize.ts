@@ -8,7 +8,15 @@ export function normalizeEventSlug(input: string): string {
   const marker = "start.gg/";
   const idx = trimmed.indexOf(marker);
   const withoutDomain = idx === -1 ? trimmed : trimmed.slice(idx + marker.length);
-  return withoutDomain.replace(/^\/+|\/+$/g, "");
+  const slug = withoutDomain.split(/[?#]/)[0].replace(/^\/+|\/+$/g, "");
+  // Lien vers une sous-page d'un jeu (".../event/sf6/overview") : on ne garde que le jeu.
+  const eventMatch = slug.match(/^tournament\/[^/]+\/event\/[^/]+/);
+  return eventMatch ? eventMatch[0] : slug;
+}
+
+/** Vrai si le slug désigne un jeu précis ("tournament/x/event/y"), pas le tournoi entier. */
+export function isEventSlug(slug: string): boolean {
+  return /^tournament\/[^/]+\/event\/[^/]+$/.test(slug);
 }
 
 /**
